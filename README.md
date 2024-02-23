@@ -65,3 +65,9 @@ and you should see the message
 ```cmd
 Connected to the PostgreSQL server.
 ```
+
+### Download CSV to import into postgres
+
+[Download this csv](https://www.kaggle.com/datasets/yaminh/applicant-details-for-loan-approve) to import into postgres and put it in your project folder where the python scripts are.
+
+Unzip the archive and move the `Applicant-details.csv` into the project folder.
