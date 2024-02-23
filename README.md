@@ -49,3 +49,17 @@ exit
 ### Update database.ini
 
 The file database.ini contains the login parameters for your postgres install.
+
+### Test the connect.py script
+
+Now python should be able to connect to your privacy database. Run the script with
+
+```cmd
+python connect.py
+```
+
+and you should see the message
+
+```cmd
+Connected to the PostgreSQL server.
+```
