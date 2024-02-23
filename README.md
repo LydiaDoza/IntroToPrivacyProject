@@ -4,6 +4,8 @@ This is a repo for the CS510 class Introduction to Privacy Aware Computing final
 
 ## Setup
 
+(The setup steps follows [this tutorial](https://www.postgresqltutorial.com/postgresql-python/connect/))
+
 First make a python virtual environment from within the project directory.
 
 ### Python virtual environment
