@@ -46,3 +46,6 @@ now you may exit the psql
 exit
 ```
 
+### Update database.ini
+
+The file database.ini contains the login parameters for your postgres install.
