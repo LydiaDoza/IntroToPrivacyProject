@@ -4,7 +4,7 @@ from config import load_config
 from sqlalchemy import create_engine, text
 from os import getcwd
 import os
-import sys
+import pandas as pd
 
 def create_table():
     """Create table in the database"""
@@ -39,12 +39,18 @@ if __name__ == '__main__':
     engine = create_engine(f'postgresql://{config["user"]:{config["password"]}}@{config["host"]}/{config["database"]}')
 
     cwd = getcwd()
+    csv_name = "Applicant-details.csv"
 
     # print(f'cwd:{cwd}')
     # add csv location to cwd
-    csv_location = os.path.join(cwd, "Applicant-details.csv")
+    csv_location = os.path.join(cwd, csv_name)
 
     print(f'csv: {csv_location}')
+
+    print(f"Contents of {csv_name}:")
+    df = pd.read_csv(csv_location)
+    print(df.head(2))
+    print("\n")
 
     conn.commit()
     cur.close()
