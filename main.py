@@ -30,13 +30,17 @@ def create_table():
 
 if __name__ == '__main__':
     config=load_config()
-    conn = connect(config)
+    #conn = connect(config)
 
     # https://python.plainenglish.io/importing-csv-data-into-postgresql-using-python-aee6b5b11816
-    cur = conn.cursor()
-    conn.set_session(autocommit=True)
+    #cur = conn.cursor()
+    #conn.set_session(autocommit=True)
+    print(config)
 
-    engine = create_engine(f'postgresql://{config["user"]:{config["password"]}}@{config["host"]}/{config["database"]}')
+    engine = create_engine(f'postgresql://{config["user"]}:{config["password"]}@{config["host"]}/{config["database"]}')
+    #conn.commit()
+    #cur.close()
+    #conn.close()
 
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
@@ -48,10 +52,10 @@ if __name__ == '__main__':
     print(f'csv: {csv_location}')
 
     print(f"Contents of {csv_name}:")
-    df = pd.read_csv(csv_location)
-    print(df.head(2))
+    dataframe = pd.read_csv(csv_location)
+    print(dataframe.head(2))
     print("\n")
 
-    conn.commit()
-    cur.close()
-    conn.close()
+    # import CSV data into PostgreSQL
+    dataframe.to_sql("applicant-details", engine, if_exists='replace', index=False)
+
