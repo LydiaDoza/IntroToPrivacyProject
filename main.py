@@ -1,6 +1,10 @@
 import psycopg2
 from connect import connect
 from config import load_config
+from sqlalchemy import create_engine, text
+from os import getcwd
+import os
+import sys
 
 def create_table():
     """Create table in the database"""
@@ -32,8 +36,15 @@ if __name__ == '__main__':
     cur = conn.cursor()
     conn.set_session(autocommit=True)
 
-    # TODO Check if database exists https://stackoverflow.com/questions/18389124/simulate-create-database-if-not-exists-for-postgresql
-    cur.execute("CREATE DATABASE privacy")
+    engine = create_engine(f'postgresql://{config["user"]:{config["password"]}}@{config["host"]}/{config["database"]}')
+
+    cwd = getcwd()
+
+    # print(f'cwd:{cwd}')
+    # add csv location to cwd
+    csv_location = os.path.join(cwd, "Applicant-details.csv")
+
+    print(f'csv: {csv_location}')
 
     conn.commit()
     cur.close()
