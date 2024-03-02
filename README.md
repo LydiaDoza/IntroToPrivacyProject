@@ -39,7 +39,7 @@ psql -U postgres
 and then create the database for the project
 
 ```psql
-CREATE DATABASE privacy_policy;
+CREATE DATABASE privacy;
 ```
 
 now you may exit the psql
