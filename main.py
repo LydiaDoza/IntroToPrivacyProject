@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     print(f"Contents of {csv_name}:")
     dataframe = pd.read_csv(csv_location)
-    print(dataframe.head(2))
+    print(dataframe.head(2)) #Reads first two rows of .csv
     print("\n")
 
     # import CSV data into PostgreSQL
