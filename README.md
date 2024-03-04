@@ -50,7 +50,7 @@ exit
 
 ### Update database.ini
 
-The file database.ini contains the login parameters for your postgres install.
+Make a copy of database.template.init and name it database.ini. This file contains the login parameters for your postgres install. For the default configuration, update the password variable, and user if not the default.
 
 ### Test the connect.py script
 
