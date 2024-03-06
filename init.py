@@ -1,6 +1,21 @@
 from config import load_config
+from datetime import datetime, timedelta
+from enum import Enum
 from sqlalchemy import create_engine, types, URL, text
+from sqlalchemy.orm import sessionmaker
 import pandas as pd
+
+
+class Role(Enum):
+    auditor = 'auditor'
+    loan_manager = 'loan_manager'
+    loan_officer = 'loan_officer'
+
+class Purpose(Enum):
+    audit = 'audit'
+    approval = 'approval'
+    onboarding = 'onboarding'
+    review = 'review'
 
 data_schema = {
     "applicant_id": types.BigInteger,                   # unique ID for the applicant
@@ -49,6 +64,45 @@ privacy_policy_schema = {
     "end_time": types.DateTime()                        # end of effective time
 }
 
+def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
+    """
+    Adds an access policy to the 'privacy-policies' table in the database.
+
+    Parameters:
+    - role (Role): The role for which access is being granted (Enum: Role).
+    - purpose (Purpose): The purpose for granting access (Enum: Purpose).
+    - engine (sqlalchemy.engine.Engine): The SQLAlchemy engine object for executing SQL statements.
+    - start_time (datetime, optional): The start time of the access policy. Defaults to the current time if not provided.
+    - end_time (datetime, optional): The end time of the access policy. Defaults to 5 minutes from the start time if not provided.
+
+    Returns:
+    int: The index of the added access policy in the 'privacy-policies' table.
+    """
+    if start_time == None:
+        start_time = datetime.now()
+    if end_time == None:
+        end_time = start_time + timedelta(minutes=5)
+
+    policy_data = {
+        "index": 1,
+        "entity_role": role.value,
+        "purpose": purpose.value,
+        "start_time": start_time,
+        "end_time": end_time
+    }
+
+    with engine.connect() as connection:
+        result = connection.execute(text("""
+            INSERT INTO "privacy-policies" (index, entity_role, purpose, start_time, end_time)
+            VALUES (:index, :entity_role, :purpose, :start_time, :end_time)
+            RETURNING index
+        """), policy_data)
+        policy_id = result.scalar()
+        connection.commit()
+        print(f'Added policy {policy_id} {policy_data}')
+        return policy_id
+
+    
 def create_table(name, con, schema, engine, p_key='index'):
     """
     Create a table in a SQL database with the specified name, schema, and primary key.
@@ -97,3 +151,5 @@ if __name__ == '__main__':
     create_table('action-history', engine, action_history_schema, engine)
     create_table('privacy-policies', engine, privacy_policy_schema, engine)
     print("Finished initializing tables!")
+
+    #add_access_policy(Role.auditor, Purpose.audit, engine)
