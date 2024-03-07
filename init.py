@@ -172,7 +172,7 @@ def log_action(entity_id, data_id, operation, new_data, modified_column, engine)
         }
 
         connection.execute(text("""
-            INSERT INTO "action-history" (entity_id, data_id, operation, time, new_data, column_modified)
+            INSERT INTO "action_history" (entity_id, data_id, operation, time, new_data, column_modified)
             VALUES (:entity_id, :data_id, :operation, :time, :new_data, :modified_column)
         """), action_data)
         connection.commit()
@@ -214,18 +214,18 @@ def populate_data(data_name, engine, number_of_rows=-1):
         connection.commit()
         print(f'Added {num_rows} rows.')
 
-        for index, row in selected_data.iterrows():
+        result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
+        for row in result:
+            print(row)   
+
+        for row in selected_data.iterrows():
             entity_id = 1
-            data_id = row['applicant_id']
+            data_id = row
             operation = Operation.add
             new_data = ', '.join([f"{key}: {value}" for key, value in row.items()])
             modified_column = 'all_columns'
-            log_action(entity_id, data_id, operation, new_data, modified_column, engine)
-'''
-        result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
-        for row in result:
-            print(row)        
-'''
+            log_action(entity_id, data_id, operation, new_data, modified_column, engine)     
+
 
 def hard_reset(engine):
     """
@@ -351,9 +351,9 @@ if __name__ == '__main__':
     create_relationship("applicant_details", "action_history", "index", "data_id", engine, cascade_del=True)
     print("Finished setting relationships")
     
-    #add CSV data to applicant-details table
+    #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant-details', engine)
+    populate_data('applicant_details', engine, 5)
     print("CSV converted to table!")
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
