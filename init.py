@@ -206,6 +206,24 @@ def create_sequence(engine):
         connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
         connection.commit()
 
+def create_relationship(table_1, table_2, column_1, column_2, engine):
+    """
+    Create a foreign key relationship between two tables.
+
+    Parameters:
+    - table_1 (str): Name of the referenced table.
+    - table_2 (str): Name of the referencing table.
+    - column_1 (str): Column in the referenced table.
+    - column_2 (str): Column in the referencing table.
+    - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'''ALTER TABLE "{table_2}" 
+                ADD CONSTRAINT fk_{table_1}_{column_1} FOREIGN KEY ({column_2}) REFERENCES {table_1}({column_1});'''))
+        connection.commit()
 
 if __name__ == '__main__':
     print("Connecting engine to database")
@@ -228,11 +246,15 @@ if __name__ == '__main__':
 
     #initialize databases and set primary keys
     print("Initializing tables...")
-    create_table('applicant-details', engine, data_schema, engine)
-    create_table('action-history', engine, action_history_schema, engine)
-    create_table('privacy-policies', engine, privacy_policy_schema, engine)
+    create_table('applicant_details', engine, data_schema, engine)
+    create_table('action_history', engine, action_history_schema, engine)
+    create_table('privacy_policies', engine, privacy_policy_schema, engine)
     print("Finished initializing tables!")
     
+    # create relationships
+    create_relationship("privacy_policies", "action_history", "index", "policy_id", engine)
+    create_relationship("applicant_details", "action_history", "index", "data_id", engine)
+
     #add CSV data to applicant-details table
     populate_data('applicant-details', engine)
     print("CSV converted to table!")
