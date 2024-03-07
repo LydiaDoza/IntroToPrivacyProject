@@ -162,4 +162,4 @@ cython_debug/
 
 # database stuff
 Applicant-details.csv
-database.template.ini
+database.ini

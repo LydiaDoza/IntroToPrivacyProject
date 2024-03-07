@@ -1,7 +1,7 @@
 # Script from https://www.postgresqltutorial.com/postgresql-python/connect/
 from configparser import ConfigParser
 
-def load_config(filename='database.template.ini', section='postgresql'):
+def load_config(filename='database.ini', section='postgresql'):
     parser = ConfigParser()
     parser.read(filename)
 
