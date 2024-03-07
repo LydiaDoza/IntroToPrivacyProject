@@ -86,7 +86,6 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
         end_time = start_time + timedelta(minutes=5)
 
     policy_data = {
-        "index": 1,
         "entity_role": role.value,
         "purpose": purpose.value,
         "start_time": start_time,
@@ -95,15 +94,14 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
 
     with engine.connect() as connection:
         result = connection.execute(text("""
-            INSERT INTO "privacy-policies" (index, entity_role, purpose, start_time, end_time)
-            VALUES (:index, :entity_role, :purpose, :start_time, :end_time)
+            INSERT INTO "privacy-policies" (entity_role, purpose, start_time, end_time)
+            VALUES (:entity_role, :purpose, :start_time, :end_time)
             RETURNING index
         """), policy_data)
         policy_id = result.scalar()
         connection.commit()
         print(f'Added policy {policy_id} {policy_data}')
         return policy_id
-
     
 def create_table(name, con, schema, engine, p_key='index'):
     """
@@ -128,12 +126,12 @@ def create_table(name, con, schema, engine, p_key='index'):
         result = connection.execute(text(f'SELECT * FROM "{name}"'))
         rows = result.keys()
         print('Column names:', *[r for r in rows], sep='\n\t')
-
+        connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET DEFAULT nextval(\'counter\');'))
+        connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET NOT NULL;'))
         connection.execute(text(f'ALTER TABLE "{name}" ADD PRIMARY KEY ({p_key});'))
         connection.commit()
         print("Primary key: index")
     print()
-
 
 def populate_data(name, con, number_of_rows = -1):
     """
@@ -177,6 +175,38 @@ def populate_data(name, con, number_of_rows = -1):
         print(f'Added {num_rows} rows.')
         return
 
+def hard_reset(engine):
+    """
+    Completely resets the PostgreSQL database by dropping the 'public' schema. It then recreates it.
+
+    Parameters:
+    - engine: The SQLAlchemy engine object connected to the PostgreSQL database.
+
+    Returns:
+    None
+    """
+    print("Resetting database")
+    with engine.connect() as connection:
+        connection.execute(text('DROP SCHEMA public CASCADE;'))
+        connection.execute(text('CREATE SCHEMA public;'))
+        connection.commit()
+    print("Database reset")
+
+def create_sequence(engine):
+    """
+    This function creates a sequence named 'counter' if it doesn't already exist in the database.
+
+    Parameters:
+    - engine: An SQLAlchemy engine object used to connect to the database.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
+        connection.commit()
+
+
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
@@ -190,15 +220,22 @@ if __name__ == '__main__':
     engine = create_engine(db_url)
     print("Connection established!")
  
+    # reset the database just in case
+    hard_reset(engine)
+
+    #create sequence for unique indexes in tables
+    create_sequence(engine)
+
     #initialize databases and set primary keys
     print("Initializing tables...")
     create_table('applicant-details', engine, data_schema, engine)
     create_table('action-history', engine, action_history_schema, engine)
     create_table('privacy-policies', engine, privacy_policy_schema, engine)
     print("Finished initializing tables!")
-
+    
     #add CSV data to applicant-details table
     populate_data('applicant-details', engine)
     print("CSV converted to table!")
 
+    #add_access_policy(Role.auditor, Purpose.audit, engine)
     #add_access_policy(Role.auditor, Purpose.audit, engine)
