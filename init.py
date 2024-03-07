@@ -46,8 +46,8 @@ action_history_schema = {
                     'view',
                     name="operation_enum"),   
     "time": types.BigInteger,                           # time operation was conducted
-    "new_data": types.String(50),                       # the data added or updated (not removed or viewed)
-    "column": types.String(50)                          # column being modified
+    "new_data": types.String(500),                       # the data added or updated (not removed or viewed)
+    "column": types.String(100)                          # column being modified
 }
 
 privacy_policy_schema = {
@@ -133,6 +133,40 @@ def create_table(name, con, schema, engine, p_key='index'):
         print("Primary key: index")
     print()
 
+
+def log_action(entity_id, data_id, operation, new_data, modified_column, engine):
+    """
+    Log an action into the action history table.
+
+    Parameters:
+    - entity_id (int): The ID of the entity performing the action.
+    - data_id (int): The ID of the data being acted upon.
+    - operation (Operation): The operation being performed (Enum: Operation).
+    - new_data (str): The new data added or updated.
+    - modified_column (str): The column being modified.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        action_data = {
+            "entity_id": entity_id,
+            "data_id": data_id,
+            "operation": operation.value,
+            "time": datetime.now(),
+            "new_data": new_data,
+            "modified_column": modified_column
+        }
+
+        connection.execute(text("""
+            INSERT INTO "action_history" (entity_id, data_id, operation, time, new_data, column)
+            VALUES (:entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+        """), action_data)
+        connection.commit()
+
+
+
 def populate_data(data_name, engine, number_of_rows=-1):
     """
     Populate the data table.
@@ -168,10 +202,17 @@ def populate_data(data_name, engine, number_of_rows=-1):
         connection.commit()
         print(f'Added {num_rows} rows.')
 
-        # Print the table
+        for index, row in selected_data.iterrows():
+            entity_id = 1
+            data_id = row['applicant_id']
+            operation = Operation.add
+            new_data = ', '.join([f"{key}: {value}" for key, value in row.items()])
+            modified_column = 'all_columns'
+            log_action(entity_id, data_id, operation, new_data, modified_column, engine)
+
         result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
         for row in result:
-            print(row)
+            print(row)        
 
 
 def hard_reset(engine):
