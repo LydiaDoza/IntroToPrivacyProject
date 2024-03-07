@@ -12,6 +12,13 @@ class Role(Enum):
     auditor = 'auditor'
     loan_manager = 'loan_manager'
     loan_officer = 'loan_officer'
+
+class Operation(Enum):
+    add = 'add'
+    delete = 'delete'
+    update = 'update'
+    view = 'view'
+
 class Purpose(Enum):
     audit = 'audit'
     approval = 'approval'
@@ -29,8 +36,8 @@ data_schema = {
     "annual_income": types.Integer,                     # applicant's income for the year
     "applicant_age": types.Integer,                     # age of the applicant
     "work_experience": types.Integer,                   # years of experience in the work force
-    "marital_status": types.String(length=10),          # married or single status for applicant
-    "house_ownership": types.String(length=10),         # rented, owned, or norent_noown status of an applicant's house
+    "marital_status": types.String(length=25),          # married or single status for applicant
+    "house_ownership": types.String(length=25),         # rented, owned, or norent_noown status of an applicant's house
     "vehicle_ownership(car)": types.String(length=5),   # yes or no for applicant owning a car
     "occupation": types.String(length=40),              # the current occupation of the applicant
     "residence_city": types.String(length=50),          # the current city the applicant lives in
@@ -50,9 +57,9 @@ action_history_schema = {
                     'update',
                     'view',
                     name="operation_enum"),   
-    "time": types.BigInteger,                           # time operation was conducted
-    "new_data": types.String(50),                       # the data added or updated (not removed or viewed)
-    "column": types.String(50)                          # column being modified
+    "time": types.DateTime(),                           # time operation was conducted
+    "new_data": types.String(500),                       # the data added or updated (not removed or viewed)
+    "column_modified": types.String(100)                          # column being modified
 }
 
 privacy_policy_schema = {
@@ -138,6 +145,40 @@ def create_table(name, con, schema, engine, p_key='index'):
         print("Primary key: index")
     print()
 
+
+def log_action(entity_id, data_id, operation, new_data, modified_column, engine):
+    """
+    Log an action into the action history table.
+
+    Parameters:
+    - entity_id (int): The ID of the entity performing the action.
+    - data_id (int): The ID of the data being acted upon.
+    - operation (Operation): The operation being performed (Enum: Operation).
+    - new_data (str): The new data added or updated.
+    - modified_column (str): The column being modified.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        action_data = {
+            "entity_id": entity_id,
+            "data_id": data_id,
+            "operation": operation.value,
+            "time": datetime.now(),
+            "new_data": new_data,
+            "modified_column": modified_column
+        }
+
+        connection.execute(text("""
+            INSERT INTO "action-history" (entity_id, data_id, operation, time, new_data, column_modified)
+            VALUES (:entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+        """), action_data)
+        connection.commit()
+
+
+
 def populate_data(data_name, engine, number_of_rows=-1):
     """
     Populate the data table.
@@ -173,11 +214,18 @@ def populate_data(data_name, engine, number_of_rows=-1):
         connection.commit()
         print(f'Added {num_rows} rows.')
 
-        # Print the table
+        for index, row in selected_data.iterrows():
+            entity_id = 1
+            data_id = row['applicant_id']
+            operation = Operation.add
+            new_data = ', '.join([f"{key}: {value}" for key, value in row.items()])
+            modified_column = 'all_columns'
+            log_action(entity_id, data_id, operation, new_data, modified_column, engine)
+'''
         result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
         for row in result:
-            print(row)
-
+            print(row)        
+'''
 
 def hard_reset(engine):
     """
@@ -305,7 +353,7 @@ if __name__ == '__main__':
     
     #add CSV data to applicant-details table
     print("Populating tables...")
-    populate_data('applicant-details', engine, 5)
+    populate_data('applicant-details', engine)
     print("CSV converted to table!")
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
