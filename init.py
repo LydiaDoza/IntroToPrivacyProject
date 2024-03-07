@@ -12,12 +12,17 @@ class Role(Enum):
     auditor = 'auditor'
     loan_manager = 'loan_manager'
     loan_officer = 'loan_officer'
-
 class Purpose(Enum):
     audit = 'audit'
     approval = 'approval'
     onboarding = 'onboarding'
     review = 'review'
+
+class Operation(Enum):
+    add = 'add',
+    delete = 'delete',
+    update = 'update',
+    view = 'view'
 
 data_schema = {
     "applicant_id": types.BigInteger,                   # unique ID for the applicant
@@ -94,7 +99,7 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
 
     with engine.connect() as connection:
         result = connection.execute(text("""
-            INSERT INTO "privacy-policies" (entity_role, purpose, start_time, end_time)
+            INSERT INTO "privacy_policies" (entity_role, purpose, start_time, end_time)
             VALUES (:entity_role, :purpose, :start_time, :end_time)
             RETURNING index
         """), policy_data)
@@ -206,7 +211,7 @@ def create_sequence(engine):
         connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
         connection.commit()
 
-def create_relationship(table_1, table_2, column_1, column_2, engine):
+def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
     """
     Create a foreign key relationship between two tables.
 
@@ -216,13 +221,55 @@ def create_relationship(table_1, table_2, column_1, column_2, engine):
     - column_1 (str): Column in the referenced table.
     - column_2 (str): Column in the referencing table.
     - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
+    - cascade_del (boolean): whether or not to allow cascade deletion
 
     Returns:
     None
     """
     with engine.connect() as connection:
         connection.execute(text(f'''ALTER TABLE "{table_2}" 
-                ADD CONSTRAINT fk_{table_1}_{column_1} FOREIGN KEY ({column_2}) REFERENCES {table_1}({column_1});'''))
+                ADD CONSTRAINT fk_{table_1}_{column_1} 
+                FOREIGN KEY ({column_2}) 
+                REFERENCES {table_1}({column_1})
+                {'ON DELETE CASCADE' if cascade_del else ''};'''))
+        connection.commit()
+
+def update_data(id, column, value, engine):
+    """
+    Update a specific column with a new value for a row in the 'applicant_details' table.
+
+    Parameters:
+    - id (int): The unique identifier of the applicant.
+    - column (str): The name of the column to be updated.
+    - value (any): The new value to be set in the specified column.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        query = text(f'''UPDATE applicant_details
+                     SET {column} = :new_value
+                     WHERE applicant_id = :c_id;
+                     ''')
+        connection.execute(query, new_value=value, c_id=id)
+        connection.commit()
+    #TODO add row to action history!
+
+def delete_row(app_id, engine):
+    """
+    Delete a row from the 'applicant_details' table based on the provided 'applicant_id'. 
+    Cascade delete deletes all references from action-history as well 
+
+    Parameters:
+    - app_id (int): The unique identifier of the applicant to be deleted.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'DELETE FROM applicant_details WHERE applicant_id = {app_id};'))
         connection.commit()
 
 if __name__ == '__main__':
@@ -252,12 +299,14 @@ if __name__ == '__main__':
     print("Finished initializing tables!")
     
     # create relationships
+    print("Setting up table relationships")
     create_relationship("privacy_policies", "action_history", "index", "policy_id", engine)
-    create_relationship("applicant_details", "action_history", "index", "data_id", engine)
-
+    create_relationship("applicant_details", "action_history", "index", "data_id", engine, cascade_del=True)
+    print("Finished setting relationships")
+    
     #add CSV data to applicant-details table
     populate_data('applicant-details', engine)
     print("CSV converted to table!")
 
-    #add_access_policy(Role.auditor, Purpose.audit, engine)
-    #add_access_policy(Role.auditor, Purpose.audit, engine)
+    add_access_policy(Role.auditor, Purpose.audit, engine)
+    add_access_policy(Role.auditor, Purpose.audit, engine)
