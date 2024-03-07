@@ -217,10 +217,13 @@ def populate_data(data_name, engine, number_of_rows=-1):
         result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
         for row in result:
             print(row)   
+        print()
 
-        for row in selected_data.iterrows():
+        for index, row in selected_data.iterrows():
             entity_id = 1
-            data_id = row
+            result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = :applicant_id'), {'applicant_id': row['applicant_id']})
+            data_id = result.scalar()
+            connection.commit()
             operation = Operation.add
             new_data = ', '.join([f"{key}: {value}" for key, value in row.items()])
             modified_column = 'all_columns'
