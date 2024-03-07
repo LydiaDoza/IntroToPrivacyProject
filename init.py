@@ -62,6 +62,13 @@ action_history_schema = {
     "column_modified": types.String(100)                          # column being modified
 }
 
+employee_schema = {
+    "first_name": types.String(100),
+    "last_name":types.String(200),
+    "email":types.String(100),
+    "phone":types.String(50)
+}
+
 privacy_policy_schema = {
     "entity_role": types.Enum(                          # role being given access
                     'auditor', 
@@ -215,8 +222,8 @@ def populate_data(data_name, engine, number_of_rows=-1):
         print(f'Added {num_rows} rows.')
 
         result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
-        for row in result:
-            print(row)   
+        #for row in result:
+        #    print(row)   
         print()
 
         for index, row in selected_data.iterrows():
@@ -344,6 +351,7 @@ if __name__ == '__main__':
     #initialize databases and set primary keys
     print("Initializing tables...")
     create_table('applicant_details', engine, data_schema, engine)
+    create_table('employees', engine, employee_schema, engine)
     create_table('action_history', engine, action_history_schema, engine)
     create_table('privacy_policies', engine, privacy_policy_schema, engine)
     print("Finished initializing tables!")
@@ -356,7 +364,7 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine, 5)
+    populate_data('applicant_details', engine,10000)
     print("CSV converted to table!")
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
