@@ -37,7 +37,7 @@ data_schema = {
     "residence_state": types.String(length=50),         # the state that the city is in
     "years_in_current_employment": types.Integer,       # number of years of current occupation
     "years_in_current_residence": types.Integer,        # number of years in the current housing
-    "loan_default_risk": types.Boolean                  # is the applicant at risk of defaulting on the loan
+    "loan_default_risk": types.Integer                  # is the applicant at risk of defaulting on the loan
 }
 
 action_history_schema = {
@@ -138,23 +138,17 @@ def create_table(name, con, schema, engine, p_key='index'):
         print("Primary key: index")
     print()
 
-def populate_data(name, con, number_of_rows = -1):
+def populate_data(data_name, engine, number_of_rows=-1):
     """
-    - name (str): The name of the table to be created.
-    - con (sqlalchemy.engine.Engine): The SQLAlchemy engine or connection object.
-    - schema (dict): A dictionary specifying the schema of the table where keys are column names
-                    and values are SQLAlchemy data types.
-    - engine (sqlalchemy.engine.Engine): The SQLAlchemy engine object for executing SQL statements.
+    Populate the data table.
 
+    Parameters:
+    - data_name (str): The name of the data table to be populated.
+    - engine (sqlalchemy.engine.Engine): The SQLAlchemy engine object.
+    - number_of_rows (int): The number of rows to be populated.
 
-    populatedata(int num_of_rows=-1)
-    - load csv
-    - choose num_of_rows rows
-        - if num_of_rows == -1 then add all
-    - create a new permission to add to permission table with a time window around time now
-    - put into datatable
-    - add row into action history
-    - we need a permission from the permissions table to add to action history
+    Returns:
+    None
     """
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
@@ -162,11 +156,11 @@ def populate_data(name, con, number_of_rows = -1):
 
     csv_data = pd.read_csv(csv_location)
     csv_data = pd.read_csv(csv_location, header = 1)
-    csv_data = pd.read_csv(csv_location, skiprows = 1, names = ["Applicant_ID", "Annual_Income", "Applicant_Age", 
-                                                                "Work_Experience", "Marital_Status", "House_Ownership", 
-                                                                "Vehicle_Ownership(car)", "Occupation", "Residence_City", 
-                                                                "Residence_State", "Years_in_Current_Employment", 
-                                                                "Years_in_Current_Residence", "Loan_Default_Risk"])
+    csv_data = pd.read_csv(csv_location, skiprows = 1, names = ["applicant_id", "annual_income", "applicant_age", 
+                                                                "work_experience", "marital_status", "house_ownership", 
+                                                                "vehicle_ownership(car)", "occupation", "residence_city", 
+                                                                "residence_state", "years_in_current_employment", 
+                                                                "years_in_current_residence", "loan_default_risk"])
     if number_of_rows == -1:
         num_rows = len(csv_data)
     else:
@@ -175,10 +169,15 @@ def populate_data(name, con, number_of_rows = -1):
     selected_data = csv_data.head(num_rows)
 
     with engine.connect() as connection:
-        selected_data.to_sql('data', engine, if_exists='append', index=False)
+        selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
         connection.commit()
         print(f'Added {num_rows} rows.')
-        return
+
+        # Print the table
+        result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
+        for row in result:
+            print(row)
+
 
 def hard_reset(engine):
     """
@@ -305,7 +304,8 @@ if __name__ == '__main__':
     print("Finished setting relationships")
     
     #add CSV data to applicant-details table
-    populate_data('applicant-details', engine)
+    print("Populating tables...")
+    populate_data('applicant-details', engine, 5)
     print("CSV converted to table!")
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
