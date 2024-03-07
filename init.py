@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from sqlalchemy import create_engine, types, URL, text
 from sqlalchemy.orm import sessionmaker
+import os
+from os import getcwd
 import pandas as pd
 
 
@@ -132,6 +134,49 @@ def create_table(name, con, schema, engine, p_key='index'):
         print("Primary key: index")
     print()
 
+
+def populate_data(name, con, number_of_rows = -1):
+    """
+    - name (str): The name of the table to be created.
+    - con (sqlalchemy.engine.Engine): The SQLAlchemy engine or connection object.
+    - schema (dict): A dictionary specifying the schema of the table where keys are column names
+                    and values are SQLAlchemy data types.
+    - engine (sqlalchemy.engine.Engine): The SQLAlchemy engine object for executing SQL statements.
+
+
+    populatedata(int num_of_rows=-1)
+    - load csv
+    - choose num_of_rows rows
+        - if num_of_rows == -1 then add all
+    - create a new permission to add to permission table with a time window around time now
+    - put into datatable
+    - add row into action history
+    - we need a permission from the permissions table to add to action history
+    """
+    cwd = getcwd()
+    csv_name = "Applicant-details.csv"
+    csv_location = os.path.join(cwd, csv_name)
+
+    csv_data = pd.read_csv(csv_location)
+    csv_data = pd.read_csv(csv_location, header = 1)
+    csv_data = pd.read_csv(csv_location, skiprows = 1, names = ["Applicant_ID", "Annual_Income", "Applicant_Age", 
+                                                                "Work_Experience", "Marital_Status", "House_Ownership", 
+                                                                "Vehicle_Ownership(car)", "Occupation", "Residence_City", 
+                                                                "Residence_State", "Years_in_Current_Employment", 
+                                                                "Years_in_Current_Residence", "Loan_Default_Risk"])
+    if number_of_rows == -1:
+        num_rows = len(csv_data)
+    else:
+        num_rows = min(number_of_rows, len(csv_data))
+    
+    selected_data = csv_data.head(num_rows)
+
+    with engine.connect() as connection:
+        selected_data.to_sql('data', engine, if_exists='append', index=False)
+        connection.commit()
+        print(f'Added {num_rows} rows.')
+        return
+
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
@@ -151,5 +196,9 @@ if __name__ == '__main__':
     create_table('action-history', engine, action_history_schema, engine)
     create_table('privacy-policies', engine, privacy_policy_schema, engine)
     print("Finished initializing tables!")
+
+    #add CSV data to applicant-details table
+    populate_data('applicant-details', engine)
+    print("CSV converted to table!")
 
     #add_access_policy(Role.auditor, Purpose.audit, engine)
