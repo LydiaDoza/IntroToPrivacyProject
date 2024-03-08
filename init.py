@@ -352,7 +352,37 @@ def log_view(policy_id, entity_id, data_id, engine):
     Returns:
     None
     """
-    log_action(policy_id, entity_id, data_id, Operation.view, "N/A", "N/A", engine)
+    log_action(policy_id, entity_id, data_id, Operation.view, None, None, engine)
+
+
+def print_entire_table(table_name, engine):
+    """
+    Print the entire content of the specified table.
+
+    Parameters:
+    - table_name (str): The name of the table to be printed.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        # Query to get the column names
+        columns_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}';"
+        columns_result = connection.execute(text(columns_query))
+        columns = [row[0] for row in columns_result]
+
+        # Query to select all rows from the table
+        select_query = f"SELECT * FROM {table_name};"
+        result = connection.execute(text(select_query))
+
+        # Print the column names
+        print(columns)
+
+        # Print each row
+        for row in result:
+            print(row)
+        print('\n')
 
 
 if __name__ == '__main__':
@@ -392,6 +422,10 @@ if __name__ == '__main__':
     print("Populating tables...")
     populate_data('applicant_details', engine, 10)
     print("CSV converted to table!\n")   
+
+    # Try printing entire action history table:
+    print_entire_table('action_history', engine)
+
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
     add_access_policy(Role.auditor, Purpose.audit, engine)
