@@ -385,6 +385,37 @@ def print_entire_table(table_name, engine):
         print('\n')
 
 
+def remove_column_for_applicant(column_name, applicant_index, engine):
+    """
+    Remove the specified column for a specific applicant in the 'applicant_details' table
+    and update 'action_history' table accordingly.
+
+    Parameters:
+    - column_name (str): The name of the column to be removed.
+    - applicant_index (int): The index of the applicant whose column is to be removed.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        # Update applicant_details table to set the specified column to None for the given index
+        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE index = :applicant_index')
+        connection.execute(query, {"applicant_index": applicant_index})
+        connection.commit()
+
+        # Retrieve the applicant_id based on the index
+        result = connection.execute(text(f'SELECT applicant_id FROM applicant_details WHERE index = :applicant_index'), {"applicant_index": applicant_index})
+        applicant_id = result.scalar()
+
+        # Update action_history table to set column_modified to None where it matches the removed column and applicant_id
+        query = text(f'UPDATE action_history SET column_modified = NULL WHERE column_modified = :column_name AND data_id = :applicant_id')
+        connection.execute(query, {"column_name": column_name, "applicant_id": applicant_id})
+        connection.commit()
+
+    print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
+
+
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
@@ -423,9 +454,16 @@ if __name__ == '__main__':
     populate_data('applicant_details', engine, 10)
     print("CSV converted to table!\n")   
 
-    # Try printing entire action history table:
+    # Try printing entire action history table
+    print_entire_table('applicant_details', engine)
     print_entire_table('action_history', engine)
 
+    # Try removing a column for the third entry
+    remove_column_for_applicant("residence_city", 3, engine)
+    
+    # Try printing entire action history table should see None now
+    print_entire_table('applicant_details', engine)
+    print_entire_table('action_history', engine)
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
     add_access_policy(Role.auditor, Purpose.audit, engine)
