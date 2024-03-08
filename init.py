@@ -162,7 +162,7 @@ def create_table(name, con, schema, engine, p_key='index'):
     print()
 
 
-def log_action(entity_id, data_id, operation, new_data, modified_column, engine):
+def log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine):
     """
     Log an action into the action history table.
 
@@ -179,6 +179,7 @@ def log_action(entity_id, data_id, operation, new_data, modified_column, engine)
     """
     with engine.connect() as connection:
         action_data = {
+            "policy_id": policy_id,
             "entity_id": entity_id,
             "data_id": data_id,
             "operation": operation.value,
@@ -188,8 +189,8 @@ def log_action(entity_id, data_id, operation, new_data, modified_column, engine)
         }
 
         connection.execute(text("""
-            INSERT INTO "action_history" (entity_id, data_id, operation, time, new_data, column_modified)
-            VALUES (:entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time, new_data, column_modified)
+            VALUES (:policy_id, :entity_id, :data_id, :operation, :time, :new_data, :modified_column)
         """), action_data)
         connection.commit()
 
@@ -206,6 +207,7 @@ def populate_data(data_name, engine, number_of_rows = -1):
     Returns:
     None
     """
+    policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
@@ -227,7 +229,6 @@ def populate_data(data_name, engine, number_of_rows = -1):
     with engine.connect() as connection:
         selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
         connection.commit()
-
         for row in selected_data.itertuples(name='Applicant_Data'):
             entity_id = 1
             result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = {row[1]}'))
@@ -235,10 +236,8 @@ def populate_data(data_name, engine, number_of_rows = -1):
             connection.commit()
             operation = Operation.add
             new_data = str(row)
-            print(new_data)
             modified_column = 'all_columns'
-            log_action(entity_id, data_id, operation, new_data, modified_column, engine)
-        
+            log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
 
 
@@ -365,18 +364,18 @@ if __name__ == '__main__':
     create_table('employees', engine, employee_schema, engine)
     create_table('action_history', engine, action_history_schema, engine)
     create_table('privacy_policies', engine, privacy_policy_schema, engine)
-    print("Finished initializing tables!")
+    print("Finished initializing tables!\n")
     
     # create relationships
     print("Setting up table relationships")
     create_relationship("privacy_policies", "action_history", "index", "policy_id", engine)
     create_relationship("applicant_details", "action_history", "index", "data_id", engine, cascade_del=True)
-    print("Finished setting relationships")
+    print("Finished setting relationships!\n")
     
     #add CSV data to applicant_details table
     print("Populating tables...")
     populate_data('applicant_details', engine, 10)
-    print("CSV converted to table!")   
+    print("CSV converted to table!\n")   
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
     add_access_policy(Role.auditor, Purpose.audit, engine)
