@@ -13,13 +13,11 @@ class Role(Enum):
     loan_manager = 'loan_manager'
     loan_officer = 'loan_officer'
 
-
 class Operation(Enum):
     add = 'add'
     delete = 'delete'
     update = 'update'
     view = 'view'
-
 
 class Purpose(Enum):
     audit = 'audit'
@@ -27,13 +25,11 @@ class Purpose(Enum):
     onboarding = 'onboarding'
     review = 'review'
 
-
 class Operation(Enum):
     add = 'add',
     delete = 'delete',
     update = 'update',
     view = 'view'
-
 
 data_schema = {
     "applicant_id": types.BigInteger,                   # unique ID for the applicant
@@ -51,7 +47,6 @@ data_schema = {
     "loan_default_risk": types.Integer                  # is the applicant at risk of defaulting on the loan
 }
 
-
 action_history_schema = {
     "policy_id": types.BigInteger,                      # links with "ID" from privacy_policy
     "entity_id": types.BigInteger,                      # employee ID
@@ -67,14 +62,12 @@ action_history_schema = {
     "column_modified": types.String(100)                          # column being modified
 }
 
-
 employee_schema = {
     "first_name": types.String(100),
     "last_name":types.String(200),
     "email":types.String(100),
     "phone":types.String(50)
 }
-
 
 privacy_policy_schema = {
     "entity_role": types.Enum(                          # role being given access
@@ -91,7 +84,6 @@ privacy_policy_schema = {
     "start_time": types.DateTime(),                     # start of effective time
     "end_time": types.DateTime()                        # end of effective time
 }
-
 
 def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
     """
@@ -130,8 +122,7 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
         print(f'Added policy {policy_id} {policy_data}')
         return policy_id
     
-
-def create_table(name, con, schema, engine, p_key='index'):
+def create_table(name, schema, engine, p_key='index'):
     """
     Create a table in a SQL database with the specified name, schema, and primary key.
 
@@ -148,7 +139,7 @@ def create_table(name, con, schema, engine, p_key='index'):
     """
     df = pd.DataFrame(columns=schema.keys())#columns=schema.keys(), dtype=schema)
     #df = pd.DataFrame(columns=schema.keys(), dtype=schema)
-    df.to_sql(name, con=con, if_exists='replace', index=True, dtype=schema)
+    df.to_sql(name, con=engine, if_exists='replace', index=True, dtype=schema)
     print(f'Created {name} table');
     with engine.connect() as connection:
         result = connection.execute(text(f'SELECT * FROM "{name}"'))
@@ -195,8 +186,7 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
         """), action_data)
         connection.commit()
 
-
-def populate_data(data_name, engine, number_of_rows = -1):
+def populate_data(data_name, engine, number_of_rows=-1):
     """
     Populate the data table.
 
@@ -259,7 +249,6 @@ def hard_reset(engine):
         connection.commit()
     print("Database reset")
 
-
 def create_sequence(engine):
     """
     This function creates a sequence named 'counter' if it doesn't already exist in the database.
@@ -273,7 +262,6 @@ def create_sequence(engine):
     with engine.connect() as connection:
         connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
         connection.commit()
-
 
 def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
     """
@@ -298,7 +286,6 @@ def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_de
                 {'ON DELETE CASCADE' if cascade_del else ''};'''))
         connection.commit()
 
-
 def update_data(id, column, value, engine):
     """
     Update a specific column with a new value for a row in the 'applicant_details' table.
@@ -320,7 +307,6 @@ def update_data(id, column, value, engine):
         connection.execute(query, new_value=value, c_id=id)
         connection.commit()
     #TODO add row to action history!
-
 
 def delete_row(app_id, engine):
     """
@@ -376,11 +362,11 @@ if __name__ == '__main__':
 
     #initialize databases and set primary keys
     print("Initializing tables...")
-    create_table('applicant_details', engine, data_schema, engine)
-    create_table('employees', engine, employee_schema, engine)
-    create_table('action_history', engine, action_history_schema, engine)
-    create_table('privacy_policies', engine, privacy_policy_schema, engine)
-    print("Finished initializing tables!\n")
+    create_table('applicant_details', data_schema, engine)
+    create_table('employees', employee_schema, engine)
+    create_table('action_history', action_history_schema, engine)
+    create_table('privacy_policies', privacy_policy_schema, engine)
+    print("Finished initializing tables!")
     
     # create relationships
     print("Setting up table relationships")
@@ -390,8 +376,9 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine, 10)
-    print("CSV converted to table!\n")   
+    populate_data('applicant_details', engine,1)
+    print("CSV converted to table!\n")
 
-    add_access_policy(Role.auditor, Purpose.audit, engine)
-    add_access_policy(Role.auditor, Purpose.audit, engine)
+    #delete_row(75722, engine)
+    #add_access_policy(Role.auditor, Purpose.audit, engine)
+    # add_access_policy(Role.auditor, Purpose.audit, engine)
