@@ -345,27 +345,14 @@ def log_view(policy_id, entity_id, data_id, engine):
 
     Parameters:
     - policy_id (int): The unique ID of the policy being followed.
-    - employee_id (int): The unique identifier of the employee who is viewing data.
+    - employee_id (int): The unique ID of the employee who is viewing data.
     - data_id (int): The unique ID of the data being accessed.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
     None
     """
-    with engine.connect() as connection:
-        action_data = {
-            "policy_id": policy_id,
-            "entity_id": entity_id,
-            "data_id": data_id,
-            "operation": Operation.view,
-            "time": datetime.now(),
-        }
-
-        connection.execute(text("""
-            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time)
-            VALUES (:policy_id, :entity_id, :data_id, :operation, :time)
-        """), action_data)
-        connection.commit()
+    log_action(policy_id, entity_id, data_id, Operation.view, "N/A", "N/A", engine)
 
 
 if __name__ == '__main__':
