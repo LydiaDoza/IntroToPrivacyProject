@@ -167,6 +167,7 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
     Log an action into the action history table.
 
     Parameters:
+    - privacy_id (int): The ID of the policy that is being used.
     - entity_id (int): The ID of the entity performing the action.
     - data_id (int): The ID of the data being acted upon.
     - operation (Operation): The operation being performed (Enum: Operation).
@@ -338,13 +339,14 @@ def delete_row(app_id, engine):
         connection.commit()
 
 
-def log_view(policy_id, entity_id, data_id, time):
+def log_view(policy_id, entity_id, data_id, engine):
     """
     Update action_history to refelect an employee viewing data.
 
     Parameters:
+    - policy_id (int): The unique ID of the policy being followed.
     - employee_id (int): The unique identifier of the employee who is viewing data.
-
+    - data_id (int): The unique ID of the data being accessed.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
@@ -360,10 +362,11 @@ def log_view(policy_id, entity_id, data_id, time):
         }
 
         connection.execute(text("""
-            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time, new_data, column_modified)
-            VALUES (:policy_id, :entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time)
+            VALUES (:policy_id, :entity_id, :data_id, :operation, :time)
         """), action_data)
         connection.commit()
+
 
 if __name__ == '__main__':
     print("Connecting engine to database")
