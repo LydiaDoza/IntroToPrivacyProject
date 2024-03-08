@@ -241,7 +241,6 @@ def populate_data(data_name, engine, number_of_rows = -1):
         print(f'Added {num_rows} rows.')
 
 
-
 def hard_reset(engine):
     """
     Completely resets the PostgreSQL database by dropping the 'public' schema. It then recreates it.
@@ -338,6 +337,33 @@ def delete_row(app_id, engine):
         connection.execute(text(f'DELETE FROM applicant_details WHERE applicant_id = {app_id};'))
         connection.commit()
 
+
+def log_view(policy_id, entity_id, data_id, time):
+    """
+    Update action_history to refelect an employee viewing data.
+
+    Parameters:
+    - employee_id (int): The unique identifier of the employee who is viewing data.
+
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        action_data = {
+            "policy_id": policy_id,
+            "entity_id": entity_id,
+            "data_id": data_id,
+            "operation": Operation.view,
+            "time": datetime.now(),
+        }
+
+        connection.execute(text("""
+            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time, new_data, column_modified)
+            VALUES (:policy_id, :entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+        """), action_data)
+        connection.commit()
 
 if __name__ == '__main__':
     print("Connecting engine to database")
