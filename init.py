@@ -1,20 +1,17 @@
 from config import load_config
 from datetime import datetime, timedelta
 from enum import Enum
-from sqlalchemy import create_engine, types, URL, text
-from sqlalchemy.orm import sessionmaker
 import os
 from os import getcwd
 import pandas as pd
 import random
+from sqlalchemy import create_engine, types, URL, text
+from sqlalchemy.orm import sessionmaker
 
 
-class Role(Enum):
-    auditor = 'auditor'
-    loan_manager = 'loan_manager'
-    loan_officer = 'loan_officer'
-
-
+# ------------------------------
+# Class Definitions
+# ------------------------------
 class Operation(Enum):
     add = 'add'
     delete = 'delete'
@@ -29,11 +26,29 @@ class Purpose(Enum):
     review = 'review'
 
 
-class Operation(Enum):
-    add = 'add',
-    delete = 'delete',
-    update = 'update',
-    view = 'view'
+class Role(Enum):
+    auditor = 'auditor'
+    loan_manager = 'loan_manager'
+    loan_officer = 'loan_officer'
+
+
+# ------------------------------
+# Schema Definitions
+# ------------------------------
+action_history_schema = {
+    "policy_id": types.BigInteger,                      # links with "ID" from privacy_policy
+    "entity_id": types.BigInteger,                      # employee ID
+    "data_id": types.BigInteger,                        # links with "Applicant_ID"
+    "operation": types.Enum(                            # the action done on the table
+                    'add', 
+                    'delete', 
+                    'update',
+                    'view',
+                    name="operation_enum"),   
+    "time": types.DateTime(),                           # time operation was conducted
+    "new_data": types.String(500),                      # the data added or updated (not removed or viewed)
+    "column_modified": types.String(100)                # column being modified
+}
 
 
 data_schema = {
@@ -53,23 +68,8 @@ data_schema = {
 }
 
 
-action_history_schema = {
-    "policy_id": types.BigInteger,                      # links with "ID" from privacy_policy
-    "entity_id": types.BigInteger,                      # employee ID
-    "data_id": types.BigInteger,                        # links with "Applicant_ID"
-    "operation": types.Enum(                            # the action done on the table
-                    'add', 
-                    'delete', 
-                    'update',
-                    'view',
-                    name="operation_enum"),   
-    "time": types.DateTime(),                           # time operation was conducted
-    "new_data": types.String(500),                      # the data added or updated (not removed or viewed)
-    "column_modified": types.String(100)                # column being modified
-}
-
-
 employee_schema = {
+    "employee_id": types.BigInteger,
     "first_name": types.String(100),
     "last_name":types.String(200),
     "email":types.String(100),
@@ -94,6 +94,9 @@ privacy_policy_schema = {
 }
 
 
+# ------------------------------
+# Function Definitions
+# ------------------------------
 def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
     """
     Adds an access policy to the 'privacy-policies' table in the database.
@@ -132,6 +135,45 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
         return policy_id
     
 
+def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
+    """
+    Create a foreign key relationship between two tables.
+
+    Parameters:
+    - table_1 (str): Name of the referenced table.
+    - table_2 (str): Name of the referencing table.
+    - column_1 (str): Column in the referenced table.
+    - column_2 (str): Column in the referencing table.
+    - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
+    - cascade_del (boolean): whether or not to allow cascade deletion
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'''ALTER TABLE "{table_2}" 
+                ADD CONSTRAINT fk_{table_1}_{column_1} 
+                FOREIGN KEY ({column_2}) 
+                REFERENCES {table_1}({column_1})
+                {'ON DELETE CASCADE' if cascade_del else ''};'''))
+        connection.commit()
+
+
+def create_sequence(engine):
+    """
+    This function creates a sequence named 'counter' if it doesn't already exist in the database.
+
+    Parameters:
+    - engine: An SQLAlchemy engine object used to connect to the database.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
+        connection.commit()
+
+
 def create_table(name, con, schema, engine, p_key='index'):
     """
     Create a table in a SQL database with the specified name, schema, and primary key.
@@ -161,6 +203,56 @@ def create_table(name, con, schema, engine, p_key='index'):
         connection.commit()
         print("Primary key: index")
     print()
+
+
+def delete_row(app_id, engine):
+    """
+    Delete a row from the 'applicant_details' table based on the provided 'applicant_id'. 
+    Cascade delete deletes all references from action-history as well 
+
+    Parameters:
+    - app_id (int): The unique identifier of the applicant to be deleted.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'DELETE FROM applicant_details WHERE applicant_id = {app_id};'))
+        connection.commit()
+
+
+def log_view(policy_id, entity_id, data_id, engine):
+    """
+    Update action_history to refelect an employee viewing data.
+
+    Parameters:
+    - policy_id (int): The unique ID of the policy being followed.
+    - entity_id (int): The unique ID of the employee who is viewing data.
+    - data_id (int): The unique ID of the data being accessed.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    log_action(policy_id, entity_id, data_id, Operation.view, None, None, engine)
+
+def hard_reset(engine):
+    """
+    Completely resets the PostgreSQL database by dropping the 'public' schema. It then recreates it.
+
+    Parameters:
+    - engine: The SQLAlchemy engine object connected to the PostgreSQL database.
+
+    Returns:
+    None
+    """
+    print("Resetting database")
+    with engine.connect() as connection:
+        connection.execute(text('DROP SCHEMA public CASCADE;'))
+        connection.execute(text('CREATE SCHEMA public;'))
+        connection.commit()
+    print("Database reset")
 
 
 def log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine):
@@ -210,6 +302,7 @@ def populate_data(data_name, engine, number_of_rows = -1):
     None
     """
     policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
+    entity_id = select_random_employee("employees.csv")
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
@@ -232,7 +325,6 @@ def populate_data(data_name, engine, number_of_rows = -1):
         selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
         connection.commit()
         for row in selected_data.itertuples(name='Applicant_Data'):
-            entity_id = select_random_employee("Applicant-details.csv")
             result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = {row[1]}'))
             data_id = result.scalar()
             connection.commit()
@@ -242,119 +334,6 @@ def populate_data(data_name, engine, number_of_rows = -1):
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
-
-
-def hard_reset(engine):
-    """
-    Completely resets the PostgreSQL database by dropping the 'public' schema. It then recreates it.
-
-    Parameters:
-    - engine: The SQLAlchemy engine object connected to the PostgreSQL database.
-
-    Returns:
-    None
-    """
-    print("Resetting database")
-    with engine.connect() as connection:
-        connection.execute(text('DROP SCHEMA public CASCADE;'))
-        connection.execute(text('CREATE SCHEMA public;'))
-        connection.commit()
-    print("Database reset")
-
-
-def create_sequence(engine):
-    """
-    This function creates a sequence named 'counter' if it doesn't already exist in the database.
-
-    Parameters:
-    - engine: An SQLAlchemy engine object used to connect to the database.
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
-        connection.commit()
-
-
-def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
-    """
-    Create a foreign key relationship between two tables.
-
-    Parameters:
-    - table_1 (str): Name of the referenced table.
-    - table_2 (str): Name of the referencing table.
-    - column_1 (str): Column in the referenced table.
-    - column_2 (str): Column in the referencing table.
-    - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
-    - cascade_del (boolean): whether or not to allow cascade deletion
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        connection.execute(text(f'''ALTER TABLE "{table_2}" 
-                ADD CONSTRAINT fk_{table_1}_{column_1} 
-                FOREIGN KEY ({column_2}) 
-                REFERENCES {table_1}({column_1})
-                {'ON DELETE CASCADE' if cascade_del else ''};'''))
-        connection.commit()
-
-
-def update_data(id, column, value, engine):
-    """
-    Update a specific column with a new value for a row in the 'applicant_details' table.
-
-    Parameters:
-    - id (int): The unique identifier of the applicant.
-    - column (str): The name of the column to be updated.
-    - value (any): The new value to be set in the specified column.
-    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        query = text(f'''UPDATE applicant_details
-                     SET {column} = :new_value
-                     WHERE applicant_id = :c_id;
-                     ''')
-        connection.execute(query, new_value=value, c_id=id)
-        connection.commit()
-    #TODO add row to action history!
-
-
-def delete_row(app_id, engine):
-    """
-    Delete a row from the 'applicant_details' table based on the provided 'applicant_id'. 
-    Cascade delete deletes all references from action-history as well 
-
-    Parameters:
-    - app_id (int): The unique identifier of the applicant to be deleted.
-    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        connection.execute(text(f'DELETE FROM applicant_details WHERE applicant_id = {app_id};'))
-        connection.commit()
-
-
-def log_view(policy_id, entity_id, data_id, engine):
-    """
-    Update action_history to refelect an employee viewing data.
-
-    Parameters:
-    - policy_id (int): The unique ID of the policy being followed.
-    - employee_id (int): The unique ID of the employee who is viewing data.
-    - data_id (int): The unique ID of the data being accessed.
-    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
-
-    Returns:
-    None
-    """
-    log_action(policy_id, entity_id, data_id, Operation.view, None, None, engine)
 
 
 def print_entire_table(table_name, engine):
@@ -425,7 +404,7 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
 
 def select_random_employee(csv_file):
     """
-    Selects a random employee from the CSV file.
+    Selects a random employee ID from the CSV file.
 
     Parameters:
     - csv_file (str): The path to the CSV file containing employee data.
@@ -434,15 +413,46 @@ def select_random_employee(csv_file):
     int: The employee ID.
     """
     # Read the CSV file
-    data = pd.read_csv(csv_file)
+    cwd = getcwd()
+    csv_location = os.path.join(cwd, csv_file)
 
-    # Get a random index
-    random_index = random.randint(0, len(data) - 1)
+    csv_data = pd.read_csv(csv_location, skiprows=1)
 
-    # Return the index as the employee ID
-    return data.index[random_index]
+    # Select a random row index
+    random_index = random.randint(0, len(csv_data) - 1)
+
+    # Select the random row and retrieve the value from the first column
+    random_value = csv_data.iloc[random_index, 0]
+    random_value = int(random_value)
+    return random_value
 
 
+def update_data(id, column, value, engine):
+    """
+    Update a specific column with a new value for a row in the 'applicant_details' table.
+
+    Parameters:
+    - id (int): The unique identifier of the applicant.
+    - column (str): The name of the column to be updated.
+    - value (any): The new value to be set in the specified column.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        query = text(f'''UPDATE applicant_details
+                     SET {column} = :new_value
+                     WHERE applicant_id = :c_id;
+                     ''')
+        connection.execute(query, new_value=value, c_id=id)
+        connection.commit()
+    #TODO add row to action history!
+
+
+# ------------------------------
+# Main
+# ------------------------------
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
