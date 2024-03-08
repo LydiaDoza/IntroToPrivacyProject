@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 import os
 from os import getcwd
 import pandas as pd
+import random
 
 
 class Role(Enum):
@@ -42,7 +43,7 @@ data_schema = {
     "work_experience": types.Integer,                   # years of experience in the work force
     "marital_status": types.String(length=25),          # married or single status for applicant
     "house_ownership": types.String(length=25),         # rented, owned, or norent_noown status of an applicant's house
-    "vehicle_ownership": types.String(length=5),   # yes or no for applicant owning a car
+    "vehicle_ownership": types.String(length=5),        # yes or no for applicant owning a car
     "occupation": types.String(length=40),              # the current occupation of the applicant
     "residence_city": types.String(length=50),          # the current city the applicant lives in
     "residence_state": types.String(length=50),         # the state that the city is in
@@ -63,8 +64,8 @@ action_history_schema = {
                     'view',
                     name="operation_enum"),   
     "time": types.DateTime(),                           # time operation was conducted
-    "new_data": types.String(500),                       # the data added or updated (not removed or viewed)
-    "column_modified": types.String(100)                          # column being modified
+    "new_data": types.String(500),                      # the data added or updated (not removed or viewed)
+    "column_modified": types.String(100)                # column being modified
 }
 
 
@@ -231,12 +232,13 @@ def populate_data(data_name, engine, number_of_rows = -1):
         selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
         connection.commit()
         for row in selected_data.itertuples(name='Applicant_Data'):
-            entity_id = 1
+            entity_id = select_random_employee("Applicant-details.csv")
             result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = {row[1]}'))
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
             new_data = str(row)
+            new_data = new_data.replace("'", "")
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
@@ -385,14 +387,14 @@ def print_entire_table(table_name, engine):
         print('\n')
 
 
-def remove_column_for_applicant(column_name, applicant_index, engine):
+def remove_column_for_applicant(column_name, applicant_id, engine):
     """
     Remove the specified column for a specific applicant in the 'applicant_details' table
     and update 'action_history' table accordingly.
 
     Parameters:
     - column_name (str): The name of the column to be removed.
-    - applicant_index (int): The index of the applicant whose column is to be removed.
+    - applicant_id (int): The ID of the applicant whose column is to be removed.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
@@ -400,20 +402,45 @@ def remove_column_for_applicant(column_name, applicant_index, engine):
     """
     with engine.connect() as connection:
         # Update applicant_details table to set the specified column to None for the given index
-        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE index = :applicant_index')
+        result = connection.execute(text(f'SELECT "{column_name}" FROM applicant_details WHERE applicant_id = {applicant_id}'))
+        old_data = result.scalar()
+
+        # Update applicant_details table to set the specified column to None for the given index
+        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = :applicant_id')
+        connection.execute(query, {"applicant_id": applicant_id})
+        connection.commit()
+
+        # Retrieve the applicant_index based on the applicant_id
+        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = :applicant_id'), {"applicant_id": applicant_id})
+        applicant_index = result.scalar()
+
+        # Update action_history table to set column_modified to None where it matches the removed column and applicant_id
+        query = text(f"UPDATE action_history SET new_data = REPLACE(new_data, '{column_name}={old_data}, ', '{column_name}=None, ') WHERE data_id = :applicant_index AND new_data LIKE '%{column_name}={old_data}, %'")
         connection.execute(query, {"applicant_index": applicant_index})
         connection.commit()
 
-        # Retrieve the applicant_id based on the index
-        result = connection.execute(text(f'SELECT applicant_id FROM applicant_details WHERE index = :applicant_index'), {"applicant_index": applicant_index})
-        applicant_id = result.scalar()
-
-        # Update action_history table to set column_modified to None where it matches the removed column and applicant_id
-        query = text(f'UPDATE action_history SET column_modified = NULL WHERE column_modified = :column_name AND data_id = :applicant_id')
-        connection.execute(query, {"column_name": column_name, "applicant_id": applicant_id})
-        connection.commit()
 
     print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
+
+
+def select_random_employee(csv_file):
+    """
+    Selects a random employee from the CSV file.
+
+    Parameters:
+    - csv_file (str): The path to the CSV file containing employee data.
+
+    Returns:
+    int: The employee ID.
+    """
+    # Read the CSV file
+    data = pd.read_csv(csv_file)
+
+    # Get a random index
+    random_index = random.randint(0, len(data) - 1)
+
+    # Return the index as the employee ID
+    return data.index[random_index]
 
 
 if __name__ == '__main__':
@@ -459,7 +486,7 @@ if __name__ == '__main__':
     print_entire_table('action_history', engine)
 
     # Try removing a column for the third entry
-    remove_column_for_applicant("residence_city", 3, engine)
+    remove_column_for_applicant("residence_city", 80185, engine)
     
     # Try printing entire action history table should see None now
     print_entire_table('applicant_details', engine)
