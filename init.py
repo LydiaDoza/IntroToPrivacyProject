@@ -13,11 +13,13 @@ class Role(Enum):
     loan_manager = 'loan_manager'
     loan_officer = 'loan_officer'
 
+
 class Operation(Enum):
     add = 'add'
     delete = 'delete'
     update = 'update'
     view = 'view'
+
 
 class Purpose(Enum):
     audit = 'audit'
@@ -25,11 +27,13 @@ class Purpose(Enum):
     onboarding = 'onboarding'
     review = 'review'
 
+
 class Operation(Enum):
     add = 'add',
     delete = 'delete',
     update = 'update',
     view = 'view'
+
 
 data_schema = {
     "applicant_id": types.BigInteger,                   # unique ID for the applicant
@@ -38,7 +42,7 @@ data_schema = {
     "work_experience": types.Integer,                   # years of experience in the work force
     "marital_status": types.String(length=25),          # married or single status for applicant
     "house_ownership": types.String(length=25),         # rented, owned, or norent_noown status of an applicant's house
-    "vehicle_ownership(car)": types.String(length=5),   # yes or no for applicant owning a car
+    "vehicle_ownership": types.String(length=5),   # yes or no for applicant owning a car
     "occupation": types.String(length=40),              # the current occupation of the applicant
     "residence_city": types.String(length=50),          # the current city the applicant lives in
     "residence_state": types.String(length=50),         # the state that the city is in
@@ -46,6 +50,7 @@ data_schema = {
     "years_in_current_residence": types.Integer,        # number of years in the current housing
     "loan_default_risk": types.Integer                  # is the applicant at risk of defaulting on the loan
 }
+
 
 action_history_schema = {
     "policy_id": types.BigInteger,                      # links with "ID" from privacy_policy
@@ -62,12 +67,14 @@ action_history_schema = {
     "column_modified": types.String(100)                          # column being modified
 }
 
+
 employee_schema = {
     "first_name": types.String(100),
     "last_name":types.String(200),
     "email":types.String(100),
     "phone":types.String(50)
 }
+
 
 privacy_policy_schema = {
     "entity_role": types.Enum(                          # role being given access
@@ -84,6 +91,7 @@ privacy_policy_schema = {
     "start_time": types.DateTime(),                     # start of effective time
     "end_time": types.DateTime()                        # end of effective time
 }
+
 
 def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
     """
@@ -122,6 +130,7 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
         print(f'Added policy {policy_id} {policy_data}')
         return policy_id
     
+
 def create_table(name, con, schema, engine, p_key='index'):
     """
     Create a table in a SQL database with the specified name, schema, and primary key.
@@ -185,8 +194,7 @@ def log_action(entity_id, data_id, operation, new_data, modified_column, engine)
         connection.commit()
 
 
-
-def populate_data(data_name, engine, number_of_rows=-1):
+def populate_data(data_name, engine, number_of_rows = -1):
     """
     Populate the data table.
 
@@ -206,7 +214,7 @@ def populate_data(data_name, engine, number_of_rows=-1):
     csv_data = pd.read_csv(csv_location, header = 1)
     csv_data = pd.read_csv(csv_location, skiprows = 1, names = ["applicant_id", "annual_income", "applicant_age", 
                                                                 "work_experience", "marital_status", "house_ownership", 
-                                                                "vehicle_ownership(car)", "occupation", "residence_city", 
+                                                                "vehicle_ownership", "occupation", "residence_city", 
                                                                 "residence_state", "years_in_current_employment", 
                                                                 "years_in_current_residence", "loan_default_risk"])
     if number_of_rows == -1:
@@ -219,22 +227,20 @@ def populate_data(data_name, engine, number_of_rows=-1):
     with engine.connect() as connection:
         selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
         connection.commit()
-        print(f'Added {num_rows} rows.')
 
-        result = connection.execute(text(f'SELECT * FROM "{data_name}"'))
-        #for row in result:
-        #    print(row)   
-        print()
-
-        for index, row in selected_data.iterrows():
+        for row in selected_data.itertuples(name='Applicant_Data'):
             entity_id = 1
-            result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = :applicant_id'), {'applicant_id': row['applicant_id']})
+            result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = {row[1]}'))
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
-            new_data = ', '.join([f"{key}: {value}" for key, value in row.items()])
+            new_data = str(row)
+            print(new_data)
             modified_column = 'all_columns'
-            log_action(entity_id, data_id, operation, new_data, modified_column, engine)     
+            log_action(entity_id, data_id, operation, new_data, modified_column, engine)
+        
+        print(f'Added {num_rows} rows.')
+
 
 
 def hard_reset(engine):
@@ -254,6 +260,7 @@ def hard_reset(engine):
         connection.commit()
     print("Database reset")
 
+
 def create_sequence(engine):
     """
     This function creates a sequence named 'counter' if it doesn't already exist in the database.
@@ -267,6 +274,7 @@ def create_sequence(engine):
     with engine.connect() as connection:
         connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
         connection.commit()
+
 
 def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
     """
@@ -291,6 +299,7 @@ def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_de
                 {'ON DELETE CASCADE' if cascade_del else ''};'''))
         connection.commit()
 
+
 def update_data(id, column, value, engine):
     """
     Update a specific column with a new value for a row in the 'applicant_details' table.
@@ -313,6 +322,7 @@ def update_data(id, column, value, engine):
         connection.commit()
     #TODO add row to action history!
 
+
 def delete_row(app_id, engine):
     """
     Delete a row from the 'applicant_details' table based on the provided 'applicant_id'. 
@@ -328,6 +338,7 @@ def delete_row(app_id, engine):
     with engine.connect() as connection:
         connection.execute(text(f'DELETE FROM applicant_details WHERE applicant_id = {app_id};'))
         connection.commit()
+
 
 if __name__ == '__main__':
     print("Connecting engine to database")
@@ -364,8 +375,8 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine,10000)
-    print("CSV converted to table!")
+    populate_data('applicant_details', engine, 10)
+    print("CSV converted to table!")   
 
     add_access_policy(Role.auditor, Purpose.audit, engine)
     add_access_policy(Role.auditor, Purpose.audit, engine)
