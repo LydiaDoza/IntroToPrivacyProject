@@ -299,7 +299,7 @@ def populate_data(data_name, engine, number_of_rows=-1):
     None
     """
     policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
-    entity_id = select_random_employee("employees.csv")
+    entity_id = select_random_employee()
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
@@ -326,7 +326,7 @@ def populate_data(data_name, engine, number_of_rows=-1):
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
-            new_data = ','.join(map(str, row[1:]))
+            new_data = ','.join([f'{key}={value}' for key, value in list(row._asdict().items())[1:]])
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
@@ -343,6 +343,7 @@ def print_table(table_name, engine, truncate=True):
     Returns:
     None
     """
+    chunksize = 80
     with engine.connect() as connection:
         columns_query = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}';"
         columns_result = connection.execute(text(columns_query))
@@ -360,9 +361,12 @@ def print_table(table_name, engine, truncate=True):
             for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
                 if 'timestamp' in data_type:
                     value = value.strftime('%m-%d-%y %H:%M:%S')
+                #if isinstance(value, str):
+                #    value = (value[:17] + '...') if len(value) > 20 and truncate else value
                 if isinstance(value, str):
-                    value = (value[:17] + '...') if len(value) > 20 and truncate else value
-
+                    if(len(value) > chunksize):
+                        chunks = [value[i: i + chunksize] for i in range(0, len(value), chunksize)]
+                        value = '\n'.join(chunks)
                 formatted_row.append(value)
             table.add_row(formatted_row)
 
@@ -399,8 +403,16 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
         result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {applicant_id}'))
         index = result.scalar()
 
-        # Update action_history table to set column_modified to None for offending rows
-        query = text(f"UPDATE action_history SET new_data = REPLACE(new_data, '{old_data},', 'NULL,') WHERE data_id = {index} AND new_data LIKE '%{old_data},%'")
+        query = text(f'''UPDATE action_history
+            SET new_data = 
+                CASE
+                    WHEN operation = 'add' 
+                    THEN REGEXP_REPLACE(new_data, '({column_name}=)[^,]+(,|$)', '\\1NULL\\2')
+                    WHEN operation = 'update' AND column_modified = '{column_name}'
+                    THEN NULL
+                    ELSE new_data
+                END
+            WHERE data_id = {index};''')
         connection.execute(query)
         connection.commit()
 
@@ -408,19 +420,16 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
     print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
 
 
-def select_random_employee(csv_file):
+def select_random_employee():
     """
     Selects a random employee ID from the CSV file.
-
-    Parameters:
-    - csv_file (str): The path to the CSV file containing employee data.
 
     Returns:
     int: The employee ID.
     """
     # Read the CSV file
     cwd = getcwd()
-    csv_location = os.path.join(cwd, csv_file)
+    csv_location = os.path.join(cwd, "employees.csv")
 
     csv_data = pd.read_csv(csv_location, skiprows=1)
 
@@ -446,14 +455,14 @@ def update_data(id, column, value, engine):
     None
     """
     with engine.connect() as connection:
-        query = text(f'''UPDATE applicant_details
-                     SET {column} = :new_value
-                     WHERE applicant_id = :c_id;
-                     ''')
-        connection.execute(query, new_value=value, c_id=id)
+        query = text(f'UPDATE applicant_details SET {column} = \'{value}\' WHERE applicant_id = {id};')
+        connection.execute(query)
         connection.commit()
-    #TODO add row to action history!
-
+        data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
+    
+    policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
+    entity_id = select_random_employee()
+    log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
 
 if __name__ == '__main__':
     print("Connecting engine to database")
@@ -490,10 +499,15 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine, 10)
+    populate_data('applicant_details', engine, 3)
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
+    # print_table('applicant_details', engine)
+    # print_table('action_history', engine, False)
+
+    update_data(80185, "residence_city", 'Portland', engine)
+
     print_table('applicant_details', engine)
     print_table('action_history', engine, False)
 
@@ -504,6 +518,9 @@ if __name__ == '__main__':
     print_table('applicant_details', engine)
     print_table('action_history', engine, False)
 
-    #delete_row(75722, engine)
+    # delete_row(80185, engine)
+
+    # print_table('applicant_details', engine)
+    # print_table('action_history', engine, False)
     #add_access_policy(Role.auditor, Purpose.audit, engine)
     # add_access_policy(Role.auditor, Purpose.audit, engine)
