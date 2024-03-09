@@ -325,7 +325,7 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
         """), action_data)
         connection.commit()
 
-def populate_data(data_name, engine, number_of_rows=-1):
+def load_applicants(engine, number_of_rows=-1):
     """
     Populate the data table.
 
@@ -338,7 +338,7 @@ def populate_data(data_name, engine, number_of_rows=-1):
     None
     """
     policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
-    entity_id = select_random_employee()
+    entity_id = select_random_employee(engine)
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
@@ -352,10 +352,10 @@ def populate_data(data_name, engine, number_of_rows=-1):
     selected_data = csv_data.head(num_rows)
 
     with engine.connect() as connection:
-        selected_data.to_sql(data_name, con=connection, if_exists='append', index=False)
+        selected_data.to_sql('applicant_details', con=connection, if_exists='append', index=False)
         connection.commit()
         for row in selected_data.itertuples(name='Applicant_Data'):
-            result = connection.execute(text(f'SELECT index FROM "{data_name}" WHERE applicant_id = {row[1]}'))
+            result = connection.execute(text(f'SELECT index FROM "applicant_details" WHERE applicant_id = {row[1]}'))
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
@@ -450,32 +450,39 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
     print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
 
 
-def populate_employees(engine):
+def load_employees(engine):
+    """
+    Loads the employee data into employee table.
+    NOTE: This must be done first!
+    Parameters:
+    - engine (sqlalchemy.engine.Engine): The SQLAlchemy engine object.
+
+    Returns:
+    None
+    """
     cwd = getcwd()
     csv_location = os.path.join(cwd, "employees.csv")
-
-    csv_data = pd.read_csv(csv_location, skiprows=1)
-
-def select_random_employee():
+    csv_data = pd.read_csv(csv_location, skiprows=1, names=employee_schema.keys())
+    
+    with engine.connect() as connection:
+        csv_data.to_sql('employees', con=connection, if_exists='append', index=False)
+        connection.commit()
+    
+def select_random_employee(engine):
     """
-    Selects a random employee ID from the CSV file.
+    Selects a random employee ID from the employee table.
 
     Returns:
     int: The employee ID.
     """
-    # Read the CSV file
-    cwd = getcwd()
-    csv_location = os.path.join(cwd, "employees.csv")
-
-    csv_data = pd.read_csv(csv_location, skiprows=1)
-
-    # Select a random row index
-    random_index = random.randint(0, len(csv_data) - 1)
-
-    # Select the random row and retrieve the value from the first column
-    random_value = csv_data.iloc[random_index, 0]
-    random_value = int(random_value)
-    return random_value
+    with engine.connect() as connection:
+        result = connection.execute(text("""Select employee_id
+                                         From employees
+                                         ORDER BY RANDOM()
+                                         LIMIT 1;
+                                         """))
+        return result.fetchone()[0]
+    
 
 def update_data(id, column, value, engine):
     """
@@ -497,7 +504,7 @@ def update_data(id, column, value, engine):
         data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
     
     policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
-    entity_id = select_random_employee()
+    entity_id = select_random_employee(engine)
     log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
 
 if __name__ == '__main__':
@@ -535,7 +542,8 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine, 3)
+    load_employees(engine)
+    load_applicants(engine, 3)
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
