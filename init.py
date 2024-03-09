@@ -342,14 +342,8 @@ def populate_data(data_name, engine, number_of_rows=-1):
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
+    csv_data = pd.read_csv(csv_location, skiprows = 1, names = data_schema.keys())
 
-    csv_data = pd.read_csv(csv_location)
-    csv_data = pd.read_csv(csv_location, header = 1)
-    csv_data = pd.read_csv(csv_location, skiprows = 1, names = ["applicant_id", "annual_income", "applicant_age", 
-                                                                "work_experience", "marital_status", "house_ownership", 
-                                                                "vehicle_ownership", "occupation", "residence_city", 
-                                                                "residence_state", "years_in_current_employment", 
-                                                                "years_in_current_residence", "loan_default_risk"])
     if number_of_rows == -1:
         num_rows = len(csv_data)
     else:
@@ -368,7 +362,7 @@ def populate_data(data_name, engine, number_of_rows=-1):
             new_data = ','.join([f'{key}={value}' for key, value in list(row._asdict().items())[1:]])
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
-        print(f'Added {num_rows} rows.')
+    print(f'Added {num_rows} rows.')
 
 
 def print_table(table_name, engine, truncate=True):
@@ -384,14 +378,14 @@ def print_table(table_name, engine, truncate=True):
     """
     chunksize = 80
     with engine.connect() as connection:
-        columns_query = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}';"
-        columns_result = connection.execute(text(columns_query))
+        columns_result = connection.execute(text(f'''SELECT column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = '{table_name}' 
+        ORDER BY ordinal_position;'''))
         columns_info = {row[0]: row[1] for row in columns_result}
 
         truncated_columns = {col[:15] if len(col) > 15 and truncate else col: data_type for col, data_type in columns_info.items()}
-
-        select_query = f"SELECT * FROM {table_name};"
-        result = connection.execute(text(select_query))
+        result = connection.execute(text(f"SELECT * FROM {table_name};"))
 
         table = PrettyTable(truncated_columns.keys())
 
@@ -400,15 +394,12 @@ def print_table(table_name, engine, truncate=True):
             for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
                 if 'timestamp' in data_type:
                     value = value.strftime('%m-%d-%y %H:%M:%S')
-                #if isinstance(value, str):
-                #    value = (value[:17] + '...') if len(value) > 20 and truncate else value
-                if isinstance(value, str):
+                if data_type == 'character varying' and value != None:
                     if(len(value) > chunksize):
                         chunks = [value[i: i + chunksize] for i in range(0, len(value), chunksize)]
                         value = '\n'.join(chunks)
                 formatted_row.append(value)
             table.add_row(formatted_row)
-
         # Print the table
         print(f"Table: {table_name}")
         print(table)
@@ -458,6 +449,12 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
 
     print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
 
+
+def populate_employees(engine):
+    cwd = getcwd()
+    csv_location = os.path.join(cwd, "employees.csv")
+
+    csv_data = pd.read_csv(csv_location, skiprows=1)
 
 def select_random_employee():
     """
