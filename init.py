@@ -7,17 +7,17 @@ import pandas as pd
 import random
 from sqlalchemy import create_engine, types, URL, text
 from sqlalchemy.orm import sessionmaker
+from prettytable import PrettyTable
 
 
 # ------------------------------
-# Class Definitions
+# Enum Definitions
 # ------------------------------
 class Operation(Enum):
     add = 'add'
     delete = 'delete'
     update = 'update'
     view = 'view'
-
 
 class Purpose(Enum):
     audit = 'audit'
@@ -50,7 +50,6 @@ action_history_schema = {
     "column_modified": types.String(100)                # column being modified
 }
 
-
 data_schema = {
     "applicant_id": types.BigInteger,                   # unique ID for the applicant
     "annual_income": types.Integer,                     # applicant's income for the year
@@ -75,7 +74,6 @@ employee_schema = {
     "email":types.String(100),
     "phone":types.String(50)
 }
-
 
 privacy_policy_schema = {
     "entity_role": types.Enum(                          # role being given access
@@ -174,7 +172,46 @@ def create_sequence(engine):
         connection.commit()
 
 
-def create_table(name, con, schema, engine, p_key='index'):
+def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
+    """
+    Create a foreign key relationship between two tables.
+
+    Parameters:
+    - table_1 (str): Name of the referenced table.
+    - table_2 (str): Name of the referencing table.
+    - column_1 (str): Column in the referenced table.
+    - column_2 (str): Column in the referencing table.
+    - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
+    - cascade_del (boolean): whether or not to allow cascade deletion
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'''ALTER TABLE "{table_2}" 
+                ADD CONSTRAINT fk_{table_1}_{column_1} 
+                FOREIGN KEY ({column_2}) 
+                REFERENCES {table_1}({column_1})
+                {'ON DELETE CASCADE' if cascade_del else ''};'''))
+        connection.commit()
+
+
+def create_sequence(engine):
+    """
+    This function creates a sequence named 'counter' if it doesn't already exist in the database.
+
+    Parameters:
+    - engine: An SQLAlchemy engine object used to connect to the database.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
+        connection.commit()
+
+
+def create_table(name, schema, engine, p_key='index'):
     """
     Create a table in a SQL database with the specified name, schema, and primary key.
 
@@ -191,8 +228,8 @@ def create_table(name, con, schema, engine, p_key='index'):
     """
     df = pd.DataFrame(columns=schema.keys())#columns=schema.keys(), dtype=schema)
     #df = pd.DataFrame(columns=schema.keys(), dtype=schema)
-    df.to_sql(name, con=con, if_exists='replace', index=True, dtype=schema)
-    print(f'Created {name} table');
+    df.to_sql(name, con=engine, if_exists='replace', index=True, dtype=schema)
+    print(f'Created {name} table')
     with engine.connect() as connection:
         result = connection.execute(text(f'SELECT * FROM "{name}"'))
         rows = result.keys()
@@ -288,8 +325,7 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
         """), action_data)
         connection.commit()
 
-
-def populate_data(data_name, engine, number_of_rows = -1):
+def populate_data(data_name, engine, number_of_rows=-1):
     """
     Populate the data table.
 
@@ -302,7 +338,7 @@ def populate_data(data_name, engine, number_of_rows = -1):
     None
     """
     policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
-    entity_id = select_random_employee("employees.csv")
+    entity_id = select_random_employee()
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
@@ -329,14 +365,13 @@ def populate_data(data_name, engine, number_of_rows = -1):
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
-            new_data = str(row)
-            new_data = new_data.replace("'", "")
+            new_data = ','.join([f'{key}={value}' for key, value in list(row._asdict().items())[1:]])
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
 
 
-def print_entire_table(table_name, engine):
+def print_table(table_name, engine, truncate=True):
     """
     Print the entire content of the specified table.
 
@@ -347,22 +382,36 @@ def print_entire_table(table_name, engine):
     Returns:
     None
     """
+    chunksize = 80
     with engine.connect() as connection:
-        # Query to get the column names
-        columns_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}';"
+        columns_query = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}';"
         columns_result = connection.execute(text(columns_query))
-        columns = [row[0] for row in columns_result]
+        columns_info = {row[0]: row[1] for row in columns_result}
 
-        # Query to select all rows from the table
+        truncated_columns = {col[:15] if len(col) > 15 and truncate else col: data_type for col, data_type in columns_info.items()}
+
         select_query = f"SELECT * FROM {table_name};"
         result = connection.execute(text(select_query))
 
-        # Print the column names
-        print(columns)
+        table = PrettyTable(truncated_columns.keys())
 
-        # Print each row
         for row in result:
-            print(row)
+            formatted_row = []
+            for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
+                if 'timestamp' in data_type:
+                    value = value.strftime('%m-%d-%y %H:%M:%S')
+                #if isinstance(value, str):
+                #    value = (value[:17] + '...') if len(value) > 20 and truncate else value
+                if isinstance(value, str):
+                    if(len(value) > chunksize):
+                        chunks = [value[i: i + chunksize] for i in range(0, len(value), chunksize)]
+                        value = '\n'.join(chunks)
+                formatted_row.append(value)
+            table.add_row(formatted_row)
+
+        # Print the table
+        print(f"Table: {table_name}")
+        print(table)
         print('\n')
 
 
@@ -380,41 +429,46 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
     None
     """
     with engine.connect() as connection:
-        # Update applicant_details table to set the specified column to None for the given index
+        # Update applicant_details table to get the old value
         result = connection.execute(text(f'SELECT "{column_name}" FROM applicant_details WHERE applicant_id = {applicant_id}'))
         old_data = result.scalar()
 
-        # Update applicant_details table to set the specified column to None for the given index
-        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = :applicant_id')
-        connection.execute(query, {"applicant_id": applicant_id})
+        # Update applicant_details table to set the specified column to None
+        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = {applicant_id}')
+        connection.execute(query)
         connection.commit()
 
-        # Retrieve the applicant_index based on the applicant_id
-        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = :applicant_id'), {"applicant_id": applicant_id})
-        applicant_index = result.scalar()
+        # Retrieve the index based on the applicant_id
+        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {applicant_id}'))
+        index = result.scalar()
 
-        # Update action_history table to set column_modified to None where it matches the removed column and applicant_id
-        query = text(f"UPDATE action_history SET new_data = REPLACE(new_data, '{column_name}={old_data}, ', '{column_name}=None, ') WHERE data_id = :applicant_index AND new_data LIKE '%{column_name}={old_data}, %'")
-        connection.execute(query, {"applicant_index": applicant_index})
+        query = text(f'''UPDATE action_history
+            SET new_data = 
+                CASE
+                    WHEN operation = 'add' 
+                    THEN REGEXP_REPLACE(new_data, '({column_name}=)[^,]+(,|$)', '\\1NULL\\2')
+                    WHEN operation = 'update' AND column_modified = '{column_name}'
+                    THEN NULL
+                    ELSE new_data
+                END
+            WHERE data_id = {index};''')
+        connection.execute(query)
         connection.commit()
 
 
     print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
 
 
-def select_random_employee(csv_file):
+def select_random_employee():
     """
     Selects a random employee ID from the CSV file.
-
-    Parameters:
-    - csv_file (str): The path to the CSV file containing employee data.
 
     Returns:
     int: The employee ID.
     """
     # Read the CSV file
     cwd = getcwd()
-    csv_location = os.path.join(cwd, csv_file)
+    csv_location = os.path.join(cwd, "employees.csv")
 
     csv_data = pd.read_csv(csv_location, skiprows=1)
 
@@ -425,7 +479,6 @@ def select_random_employee(csv_file):
     random_value = csv_data.iloc[random_index, 0]
     random_value = int(random_value)
     return random_value
-
 
 def update_data(id, column, value, engine):
     """
@@ -441,18 +494,15 @@ def update_data(id, column, value, engine):
     None
     """
     with engine.connect() as connection:
-        query = text(f'''UPDATE applicant_details
-                     SET {column} = :new_value
-                     WHERE applicant_id = :c_id;
-                     ''')
-        connection.execute(query, new_value=value, c_id=id)
+        query = text(f'UPDATE applicant_details SET {column} = \'{value}\' WHERE applicant_id = {id};')
+        connection.execute(query)
         connection.commit()
-    #TODO add row to action history!
+        data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
+    
+    policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
+    entity_id = select_random_employee()
+    log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
 
-
-# ------------------------------
-# Main
-# ------------------------------
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
@@ -474,11 +524,11 @@ if __name__ == '__main__':
 
     #initialize databases and set primary keys
     print("Initializing tables...")
-    create_table('applicant_details', engine, data_schema, engine)
-    create_table('employees', engine, employee_schema, engine)
-    create_table('action_history', engine, action_history_schema, engine)
-    create_table('privacy_policies', engine, privacy_policy_schema, engine)
-    print("Finished initializing tables!\n")
+    create_table('applicant_details', data_schema, engine)
+    create_table('employees', employee_schema, engine)
+    create_table('action_history', action_history_schema, engine)
+    create_table('privacy_policies', privacy_policy_schema, engine)
+    print("Finished initializing tables!")
     
     # create relationships
     print("Setting up table relationships")
@@ -488,19 +538,29 @@ if __name__ == '__main__':
     
     #add CSV data to applicant_details table
     print("Populating tables...")
-    populate_data('applicant_details', engine, 10)
+    populate_data('applicant_details', engine, 3)
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
-    print_entire_table('applicant_details', engine)
-    print_entire_table('action_history', engine)
+    print_table('applicant_details', engine)
+    print_table('action_history', engine)
+
+    update_data(80185, "residence_city", 'Portland', engine)
+
+    print_table('applicant_details', engine)
+    print_table('action_history', engine, False)
 
     # Try removing a column for the third entry
     remove_column_for_applicant("residence_city", 80185, engine)
     
     # Try printing entire action history table should see None now
-    print_entire_table('applicant_details', engine)
-    print_entire_table('action_history', engine)
+    print_table('applicant_details', engine)
+    print_table('action_history', engine, False)
 
-    add_access_policy(Role.auditor, Purpose.audit, engine)
-    add_access_policy(Role.auditor, Purpose.audit, engine)
+    # delete_row(80185, engine)
+    print_table('privacy_policies', engine)
+    print_table('employees', engine)
+    # print_table('applicant_details', engine)
+    # print_table('action_history', engine, False)
+    #add_access_policy(Role.auditor, Purpose.audit, engine)
+    # add_access_policy(Role.auditor, Purpose.audit, engine)
