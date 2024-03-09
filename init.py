@@ -7,10 +7,11 @@ import pandas as pd
 import random
 from sqlalchemy import create_engine, types, URL, text
 from sqlalchemy.orm import sessionmaker
+from prettytable import PrettyTable
 
 
 # ------------------------------
-# Class Definitions
+# Enum Definitions
 # ------------------------------
 class Operation(Enum):
     add = 'add'
@@ -325,14 +326,13 @@ def populate_data(data_name, engine, number_of_rows=-1):
             data_id = result.scalar()
             connection.commit()
             operation = Operation.add
-            new_data = str(row)
-            new_data = new_data.replace("'", "")
+            new_data = ','.join(map(str, row[1:]))
             modified_column = 'all_columns'
             log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
         print(f'Added {num_rows} rows.')
 
 
-def print_entire_table(table_name, engine):
+def print_table(table_name, engine, truncate=True):
     """
     Print the entire content of the specified table.
 
@@ -344,21 +344,31 @@ def print_entire_table(table_name, engine):
     None
     """
     with engine.connect() as connection:
-        # Query to get the column names
-        columns_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}';"
+        columns_query = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}';"
         columns_result = connection.execute(text(columns_query))
-        columns = [row[0] for row in columns_result]
+        columns_info = {row[0]: row[1] for row in columns_result}
 
-        # Query to select all rows from the table
+        truncated_columns = {col[:15] if len(col) > 15 and truncate else col: data_type for col, data_type in columns_info.items()}
+
         select_query = f"SELECT * FROM {table_name};"
         result = connection.execute(text(select_query))
 
-        # Print the column names
-        print(columns)
+        table = PrettyTable(truncated_columns.keys())
 
-        # Print each row
         for row in result:
-            print(row)
+            formatted_row = []
+            for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
+                if 'timestamp' in data_type:
+                    value = value.strftime('%m-%d-%y %H:%M:%S')
+                if isinstance(value, str):
+                    value = (value[:17] + '...') if len(value) > 20 and truncate else value
+
+                formatted_row.append(value)
+            table.add_row(formatted_row)
+
+        # Print the table
+        print(f"Table: {table_name}")
+        print(table)
         print('\n')
 
 
@@ -376,22 +386,22 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
     None
     """
     with engine.connect() as connection:
-        # Update applicant_details table to set the specified column to None for the given index
+        # Update applicant_details table to get the old value
         result = connection.execute(text(f'SELECT "{column_name}" FROM applicant_details WHERE applicant_id = {applicant_id}'))
         old_data = result.scalar()
 
-        # Update applicant_details table to set the specified column to None for the given index
-        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = :applicant_id')
-        connection.execute(query, {"applicant_id": applicant_id})
+        # Update applicant_details table to set the specified column to None
+        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = {applicant_id}')
+        connection.execute(query)
         connection.commit()
 
-        # Retrieve the applicant_index based on the applicant_id
-        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = :applicant_id'), {"applicant_id": applicant_id})
-        applicant_index = result.scalar()
+        # Retrieve the index based on the applicant_id
+        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {applicant_id}'))
+        index = result.scalar()
 
-        # Update action_history table to set column_modified to None where it matches the removed column and applicant_id
-        query = text(f"UPDATE action_history SET new_data = REPLACE(new_data, '{column_name}={old_data}, ', '{column_name}=None, ') WHERE data_id = :applicant_index AND new_data LIKE '%{column_name}={old_data}, %'")
-        connection.execute(query, {"applicant_index": applicant_index})
+        # Update action_history table to set column_modified to None for offending rows
+        query = text(f"UPDATE action_history SET new_data = REPLACE(new_data, '{old_data},', 'NULL,') WHERE data_id = {index} AND new_data LIKE '%{old_data},%'")
+        connection.execute(query)
         connection.commit()
 
 
@@ -445,9 +455,6 @@ def update_data(id, column, value, engine):
     #TODO add row to action history!
 
 
-# ------------------------------
-# Main
-# ------------------------------
 if __name__ == '__main__':
     print("Connecting engine to database")
     config = load_config()
@@ -487,15 +494,15 @@ if __name__ == '__main__':
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
-    print_entire_table('applicant_details', engine)
-    print_entire_table('action_history', engine)
+    print_table('applicant_details', engine)
+    print_table('action_history', engine, False)
 
     # Try removing a column for the third entry
     remove_column_for_applicant("residence_city", 80185, engine)
     
     # Try printing entire action history table should see None now
-    print_entire_table('applicant_details', engine)
-    print_entire_table('action_history', engine)
+    print_table('applicant_details', engine)
+    print_table('action_history', engine, False)
 
     #delete_row(75722, engine)
     #add_access_policy(Role.auditor, Purpose.audit, engine)
