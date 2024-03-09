@@ -4,9 +4,7 @@ from enum import Enum
 import os
 from os import getcwd
 import pandas as pd
-import random
 from sqlalchemy import create_engine, types, URL, text
-from sqlalchemy.orm import sessionmaker
 from prettytable import PrettyTable
 
 
@@ -15,7 +13,7 @@ from prettytable import PrettyTable
 # ------------------------------
 class Operation(Enum):
     add = 'add'
-    delete = 'delete'
+    delete = 'soft_delete'   # soft delete
     update = 'update'
     view = 'view'
 
@@ -24,7 +22,6 @@ class Purpose(Enum):
     approval = 'approval'
     onboarding = 'onboarding'
     review = 'review'
-
 
 class Role(Enum):
     auditor = 'auditor'
@@ -40,10 +37,7 @@ action_history_schema = {
     "entity_id": types.BigInteger,                      # employee ID
     "data_id": types.BigInteger,                        # links with "Applicant_ID"
     "operation": types.Enum(                            # the action done on the table
-                    'add', 
-                    'delete', 
-                    'update',
-                    'view',
+                    *[op.value for op in Operation],
                     name="operation_enum"),   
     "time": types.DateTime(),                           # time operation was conducted
     "new_data": types.String(500),                      # the data added or updated (not removed or viewed)
@@ -66,7 +60,6 @@ data_schema = {
     "loan_default_risk": types.Integer                  # is the applicant at risk of defaulting on the loan
 }
 
-
 employee_schema = {
     "employee_id": types.BigInteger,
     "first_name": types.String(100),
@@ -77,15 +70,10 @@ employee_schema = {
 
 privacy_policy_schema = {
     "entity_role": types.Enum(                          # role being given access
-                    'auditor', 
-                    'loan_manager', 
-                    'loan_officer',
+                    *[op.value for op in Role],
                     name='role_enum'),  
     "purpose": types.Enum(                              # reason why
-                    'audit', 
-                    'approval', 
-                    'onboarding', 
-                    'review',
+                    *[op.value for op in Purpose],
                     name='purpose_enum'),      
     "start_time": types.DateTime(),                     # start of effective time
     "end_time": types.DateTime()                        # end of effective time
@@ -472,6 +460,9 @@ def select_random_employee(engine):
     """
     Selects a random employee ID from the employee table.
 
+    Paramters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
     Returns:
     int: The employee ID.
     """
@@ -482,7 +473,26 @@ def select_random_employee(engine):
                                          LIMIT 1;
                                          """))
         return result.fetchone()[0]
-    
+
+
+def get_random_account(engine):
+    '''
+    Selects a random account from the accounts table
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+
+    '''
+    with engine.connect() as connection:
+        result = connection.execute(text("""Select *
+                                         From applicant_details
+                                         ORDER BY RANDOM()
+                                         LIMIT 1;
+                                         """))
+        return result.fetchone()
+
 
 def update_data(id, column, value, engine):
     """
@@ -507,7 +517,7 @@ def update_data(id, column, value, engine):
     entity_id = select_random_employee(engine)
     log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
 
-if __name__ == '__main__':
+def engine():
     print("Connecting engine to database")
     config = load_config()
     db_url = URL.create(
@@ -519,6 +529,11 @@ if __name__ == '__main__':
     )
     engine = create_engine(db_url)
     print("Connection established!")
+    return engine
+
+if __name__ == '__main__':
+    
+    engine = engine()
  
     # reset the database just in case
     hard_reset(engine)
