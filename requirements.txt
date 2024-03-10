@@ -1,3 +1,4 @@
+faker==24.1.0
 greenlet==3.0.3
 numpy==1.26.4
 pandas==2.2.1
