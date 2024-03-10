@@ -295,7 +295,7 @@ def load_applicants(engine, number_of_rows=-1):
     csv_location = os.path.join(cwd, csv_name)
     csv_data = pd.read_csv(csv_location, skiprows = 1, names = data_schema.keys(), dtype={'loan_default_risk':bool})
     csv_data['is_deleted'] = False
-    
+
     if number_of_rows == -1:
         num_rows = len(csv_data)
     else:
@@ -340,6 +340,7 @@ def print_table(table_name, engine, truncate=True):
 
         table = PrettyTable(truncated_columns.keys())
         row_count = 0
+        table_count = 0
         for row in result:
             formatted_row = []
             for value, data_type in zip(row, truncated_columns.values()):
@@ -358,9 +359,10 @@ def print_table(table_name, engine, truncate=True):
                 print(table)
                 print('\n')
                 row_count = 0
+                table_count += 1
                 table.clear_rows()      
         # Print the table
-        if row_count > 0:
+        if row_count > 0  or table_count == 0:
             print(f"Table: {table_name}")
             print(table)
             print('\n')
@@ -560,8 +562,9 @@ if __name__ == '__main__':
     # Try printing entire action history table
     print_table('applicant_details', engine)
     print_table('action_history', engine)
-
-    soft_delete(get_random_account(engine)[0],engine)
+    victim = get_random_account(engine)
+    print('victim:', victim[0])
+    delete_row(victim[1],engine)
 
     print_table('applicant_details', engine)
     print_table('action_history', engine, False)

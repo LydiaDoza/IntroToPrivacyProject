@@ -78,18 +78,31 @@ def init(engine,num_applicants=-1, history_size=-1):
             random_action(engine)
 
 def column_delete_test(engine):
-    victim = db.get_random_account(engine)
     init(engine, num_applicants=1)
+    victim = db.get_random_account(engine)
     for _ in range(10):
         random_action(engine, acc_data=victim, can_delete=False)
+    for _ in range(2):
+        db.update_data(victim[1], 'residence_city', Faker().city(), engine)
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
     db.remove_column_for_applicant('residence_city', victim[1],engine)
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
 
-
+def row_delete_test(engine):
+    init(engine, num_applicants=1)
+    victim = db.get_random_account(engine)
+    for _ in range(10):
+        random_action(engine, acc_data=victim, can_delete=False)
+    db.soft_delete(victim[0], engine)
+    db.print_table('applicant_details', engine)
+    db.print_table('action_history', engine)
+    db.delete_row(victim[1],engine)
+    db.print_table('applicant_details', engine)
+    db.print_table('action_history', engine)
 
 engine = db.engine()
 
-column_delete_test(engine)
+#column_delete_test(engine)
+row_delete_test(engine)
