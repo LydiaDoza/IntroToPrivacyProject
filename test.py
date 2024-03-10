@@ -1,6 +1,7 @@
 import init as db
 import random
 from faker import Faker
+import time
 
 def random_action(engine, acc_data=None,can_delete=True):
     """
@@ -35,11 +36,11 @@ def random_action(engine, acc_data=None,can_delete=True):
         elif column == 'occupation':
             fake = Faker()
             new_value = fake.job()
+            new_value = new_value.replace("'", "")
             if len(new_value) > 40:
                 x = new_value.split(',')
                 if len(x) > 1:
                     new_value = x[0]
-                new_value.replace("'", "\\'")
                 new_value = new_value[:40]
         elif column == 'residence_city':
             fake = Faker()
@@ -70,14 +71,37 @@ def random_action(engine, acc_data=None,can_delete=True):
         else:
             random_action(engine, acc_data=acc_data, can_delete=False)
 
-def init(engine,num_applicants=-1, history_size=-1):
+def init(engine,num_applicants=-1, history_size=-1, acc=None, delete=True):
+    """
+    Initialize the database with a specified number of applicants and random actions.
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - num_applicants (int): Number of applicants to initialize in the database.
+                           Default is -1, which means the initialization won't add new applicants.
+    - history_size (float): Size of the action history relative to the number of applicants. Default is -1, which means no action history generation.
+    - acc (tuple): Account data to use when generating actions. Default is None.
+    - delete (bool): Indicates whether the generated actions can include deletion. Default is True.
+
+    Returns:
+    None
+    """
     db.init(engine, num_applicants=num_applicants)
     if(history_size > 0):
         hs = int(num_applicants * history_size)
         for _ in range(hs):
-            random_action(engine)
+            random_action(engine, acc_data=acc, can_delete=delete)
 
 def column_delete_test(engine):
+    """
+    Test function for column deletion.
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
     init(engine, num_applicants=1)
     victim = db.get_random_account(engine)
     for _ in range(10):
@@ -91,6 +115,15 @@ def column_delete_test(engine):
     db.print_table('action_history', engine)
 
 def row_delete_test(engine):
+    """
+    Test function for row deletion.
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
     init(engine, num_applicants=1)
     victim = db.get_random_account(engine)
     for _ in range(10):
@@ -102,7 +135,58 @@ def row_delete_test(engine):
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
 
+def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1):
+    """
+    Measures the average execution time of deletion operations in the database.
+
+    Parameters:
+    - num_app (int): Number of applicants to use in test.
+    - num_hist (float): Number of history records relative to number of applicants 
+    - del_type (str): Type of deletion operation ('row' for row deletion, 'column' for column deletion).
+    - num_iter (int): Number of iterations for the test.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - num_del (int): Number of deletion operations per iteration (default is 1).
+    - seed (int): Seed for random number generation (default is -1, ignored if < 1)
+
+    Returns:
+    float: Average time taken for the deletion operation across all iterations.
+    """
+    time_sum = 0
+    print(f'{del_type} test [iter={num_iter}, num_app={num_app}, num_hist={num_hist}, num_del={num_del}]')
+    for i in range(num_iter):
+        print(f'\t{i + 1}: ', end='')
+        # test set up
+        print('Initializing db...', end='')
+        if seed > 0:
+            random.seed(seed)
+        init(engine, num_app)
+        victim = db.get_random_account(engine)
+        d = True if del_type == 'row' else False
+        n = (num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist)
+        print('Populating action history...', end='')
+        for _ in range(n):
+            random_action(engine, can_delete=d)
+        if del_type == 'column':
+            for _ in range(2):
+                db.update_data(victim[1], 'residence_city', Faker().city(), engine)
+        elif del_type == 'row':
+            db.soft_delete(victim[0], engine)
+        # run iteration
+        print('Running test...', end='')
+        s_time = time.time()
+        if del_type == 'column':
+            db.remove_column_for_applicant('residence_city', victim[1], engine)
+        elif del_type == 'row':
+            db.delete_row(victim[1], engine)
+        f_time = time.time()
+        time_sum += f_time - s_time
+        print(f'{round((f_time - s_time) * 1000, 5)} ms')
+    avg_time = time_sum / num_iter
+    return avg_time
+
 engine = db.engine()
 
+avg = timed_test(100, 1, 'column', 3, engine, seed=12345) * 1000
+print("average", round(avg, 3), 'ms')
 #column_delete_test(engine)
-row_delete_test(engine)
+#row_delete_test(engine)
