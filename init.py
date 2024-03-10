@@ -34,7 +34,7 @@ class Role(Enum):
 # ------------------------------
 action_history_schema = {
     "policy_id": types.BigInteger,                      # links with "ID" from privacy_policy
-    "entity_id": types.BigInteger,                      # employee ID
+    "employee_id": types.BigInteger,                      # employee ID
     "data_id": types.BigInteger,                        # links with "Applicant_ID"
     "operation": types.Enum(                            # the action done on the table
                     *[op.value for op in Operation],
@@ -62,7 +62,7 @@ data_schema = {
 }
 
 employee_schema = {
-    "employee_id": types.BigInteger,
+    "id": types.BigInteger,
     "first_name": types.String(100),
     "last_name":types.String(200),
     "email":types.String(100),
@@ -184,7 +184,8 @@ def create_table(name, schema, engine, p_key='index'):
         result = connection.execute(text(f'SELECT * FROM "{name}"'))
         rows = result.keys()
         print('Column names:', *[r for r in rows], sep='\n\t')
-        connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET DEFAULT nextval(\'counter\');'))
+        if p_key == 'index':
+            connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET DEFAULT nextval(\'counter\');'))
         connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET NOT NULL;'))
         connection.execute(text(f'ALTER TABLE "{name}" ADD PRIMARY KEY ({p_key});'))
         connection.commit()
@@ -209,20 +210,20 @@ def delete_row(app_id, engine):
         connection.commit()
 
 
-def log_view(policy_id, entity_id, data_id, engine):
+def log_view(policy_id, employee_id, data_id, engine):
     """
     Update action_history to refelect an employee viewing data.
 
     Parameters:
     - policy_id (int): The unique ID of the policy being followed.
-    - entity_id (int): The unique ID of the employee who is viewing data.
+    - employee_id (int): The unique ID of the employee who is viewing data.
     - data_id (int): The unique ID of the data being accessed.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
     None
     """
-    log_action(policy_id, entity_id, data_id, Operation.view, None, None, engine)
+    log_action(policy_id, employee_id, data_id, Operation.view, None, None, engine)
 
 def hard_reset(engine):
     """
@@ -242,13 +243,13 @@ def hard_reset(engine):
     print("Database reset")
 
 
-def log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine):
+def log_action(policy_id, employee_id, data_id, operation, new_data, modified_column, engine):
     """
     Log an action into the action history table.
 
     Parameters:
     - privacy_id (int): The ID of the policy that is being used.
-    - entity_id (int): The ID of the entity performing the action.
+    - employee_id (int): The ID of the employee performing the action.
     - data_id (int): The ID of the data being acted upon.
     - operation (Operation): The operation being performed (Enum: Operation).
     - new_data (str): The new data added or updated.
@@ -261,7 +262,7 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
     with engine.connect() as connection:
         action_data = {
             "policy_id": policy_id,
-            "entity_id": entity_id,
+            "employee_id": employee_id,
             "data_id": data_id,
             "operation": operation.value,
             "time": datetime.now(),
@@ -270,8 +271,8 @@ def log_action(policy_id, entity_id, data_id, operation, new_data, modified_colu
         }
 
         connection.execute(text("""
-            INSERT INTO "action_history" (policy_id, entity_id, data_id, operation, time, new_data, column_modified)
-            VALUES (:policy_id, :entity_id, :data_id, :operation, :time, :new_data, :modified_column)
+            INSERT INTO "action_history" (policy_id, employee_id, data_id, operation, time, new_data, column_modified)
+            VALUES (:policy_id, :employee_id, :data_id, :operation, :time, :new_data, :modified_column)
         """), action_data)
         connection.commit()
 
@@ -288,21 +289,19 @@ def load_applicants(engine, number_of_rows=-1):
     None
     """
     policy_id = add_access_policy(Role.loan_officer, Purpose.onboarding, engine)
-    entity_id = select_random_employee(engine)
+    employee_id = select_random_employee(engine)
     cwd = getcwd()
     csv_name = "Applicant-details.csv"
     csv_location = os.path.join(cwd, csv_name)
-    csv_data = pd.read_csv(csv_location, skiprows = 1, names = data_schema.keys())
-
+    csv_data = pd.read_csv(csv_location, skiprows = 1, names = data_schema.keys(), dtype={'loan_default_risk':bool})
+    csv_data['is_deleted'] = False
+    
     if number_of_rows == -1:
         num_rows = len(csv_data)
     else:
         num_rows = min(number_of_rows, len(csv_data))
     
     selected_data = csv_data.head(num_rows)
-    selected_data['loan_default_risk'] = selected_data['loan_default_risk'].astype(bool)
-    selected_data['is_deleted'] = False
-
     with engine.connect() as connection:
         selected_data.to_sql('applicant_details', con=connection, if_exists='append', index=False)
         connection.commit()
@@ -313,7 +312,7 @@ def load_applicants(engine, number_of_rows=-1):
             operation = Operation.add
             new_data = ','.join([f'{key}={value}' for key, value in list(row._asdict().items())[1:]])
             modified_column = 'all_columns'
-            log_action(policy_id, entity_id, data_id, operation, new_data, modified_column, engine)
+            log_action(policy_id, employee_id, data_id, operation, new_data, modified_column, engine)
     print(f'Added {num_rows} rows.')
 
 
@@ -440,7 +439,7 @@ def select_random_employee(engine):
     int: The employee ID.
     """
     with engine.connect() as connection:
-        result = connection.execute(text("""Select employee_id
+        result = connection.execute(text("""Select id
                                          From employees
                                          ORDER BY RANDOM()
                                          LIMIT 1;
@@ -462,8 +461,8 @@ def soft_delete(index, engine):
         connection.execute(text(f'UPDATE applicant_details SET is_deleted = true WHERE index = {index};'))
         connection.commit()
     policy_id = add_access_policy(Role.loan_manager, Purpose.approval, engine)
-    entity_id = select_random_employee(engine)
-    log_action(policy_id, entity_id, index, Operation.delete, None, None, engine)
+    employee_id = select_random_employee(engine)
+    log_action(policy_id, employee_id, index, Operation.delete, None, None, engine)
 
 def get_random_account(engine):
     '''
@@ -507,8 +506,8 @@ def update_data(id, column, value, engine, index=-1):
         else:
             data_id = index
     policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
-    entity_id = select_random_employee(engine)
-    log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
+    employee_id = select_random_employee(engine)
+    log_action(policy_id, employee_id, data_id, Operation.update, value, column, engine)
 
 def engine():
     print("Connecting engine to database")
@@ -524,11 +523,8 @@ def engine():
     print("Connection established!")
     return engine
 
-if __name__ == '__main__':
-    
-    engine = engine()
- 
-    # reset the database just in case
+def init(engine, num_applicants=-1):
+     # reset the database just in case
     hard_reset(engine)
 
     #create sequence for unique indexes in tables
@@ -537,7 +533,7 @@ if __name__ == '__main__':
     #initialize databases and set primary keys
     print("Initializing tables...")
     create_table('applicant_details', data_schema, engine)
-    create_table('employees', employee_schema, engine)
+    create_table('employees', employee_schema, engine, p_key='id')
     create_table('action_history', action_history_schema, engine)
     create_table('privacy_policies', privacy_policy_schema, engine)
     print("Finished initializing tables!")
@@ -546,13 +542,20 @@ if __name__ == '__main__':
     print("Setting up table relationships")
     create_relationship("privacy_policies", "action_history", "index", "policy_id", engine)
     create_relationship("applicant_details", "action_history", "index", "data_id", engine, cascade_del=True)
+    create_relationship("employees","action_history", "id", "employee_id", engine)
     print("Finished setting relationships!\n")
     
     #add CSV data to applicant_details table
     print("Populating tables...")
     load_employees(engine)
-    load_applicants(engine, 10)
+    load_applicants(engine, num_applicants)
     print("CSV converted to table!\n")   
+
+if __name__ == '__main__':
+    
+    engine = engine()
+ 
+    init(engine, 10)
 
     # Try printing entire action history table
     print_table('applicant_details', engine)
@@ -562,18 +565,3 @@ if __name__ == '__main__':
 
     print_table('applicant_details', engine)
     print_table('action_history', engine, False)
-    exit()
-    # Try removing a column for the third entry
-    remove_column_for_applicant("residence_city", 80185, engine)
-    
-    # Try printing entire action history table should see None now
-    print_table('applicant_details', engine)
-    print_table('action_history', engine, False)
-
-    # delete_row(80185, engine)
-    print_table('privacy_policies', engine)
-    print_table('employees', engine)
-    # print_table('applicant_details', engine)
-    # print_table('action_history', engine, False)
-    #add_access_policy(Role.auditor, Purpose.audit, engine)
-    # add_access_policy(Role.auditor, Purpose.audit, engine)

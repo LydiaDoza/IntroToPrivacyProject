@@ -69,3 +69,16 @@ def random_action(engine, acc_data=None,can_delete=True):
             db.soft_delete(data[0], engine)
         else:
             random_action(engine, acc_data=acc_data, can_delete=False)
+
+def init(engine,num_applicants=-1, history_size=-1):
+    db.init(engine, num_applicants=num_applicants)
+    if(history_size <= 0):
+        return
+    hs = int(num_applicants * history_size)
+    for _ in range(hs):
+        random_action(engine)
+
+
+engine = db.engine()
+
+init(engine, 10, .5)
