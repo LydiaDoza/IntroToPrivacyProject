@@ -7,6 +7,7 @@ import pandas as pd
 from sqlalchemy import create_engine, types, URL, text
 from prettytable import PrettyTable
 
+VERBOSE = False
 
 # ------------------------------
 # Enum Definitions
@@ -179,19 +180,35 @@ def create_table(name, schema, engine, p_key='index'):
     df = pd.DataFrame(columns=schema.keys())#columns=schema.keys(), dtype=schema)
     #df = pd.DataFrame(columns=schema.keys(), dtype=schema)
     df.to_sql(name, con=engine, if_exists='replace', index=True, dtype=schema)
-    print(f'Created {name} table')
+    dprint(f'Created {name} table')
     with engine.connect() as connection:
         result = connection.execute(text(f'SELECT * FROM "{name}"'))
         rows = result.keys()
-        print('Column names:', *[r for r in rows], sep='\n\t')
+        dprint('Column names:', *[r for r in rows], sep='\n\t')
         if p_key == 'index':
             connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET DEFAULT nextval(\'counter\');'))
         connection.execute(text(f'ALTER TABLE "{name}" ALTER COLUMN "{p_key}" SET NOT NULL;'))
         connection.execute(text(f'ALTER TABLE "{name}" ADD PRIMARY KEY ({p_key});'))
         connection.commit()
-        print("Primary key: index")
-    print()
+        dprint("Primary key: index")
+    dprint()
 
+def dprint(*args, sep=' ', end='\n', file=None, flush=False):
+    """
+    This function only executes print() when the VERBOSE flag is set to True.
+
+    Parameters:
+    - *args: Values to be printed (similar to print function).
+    - sep (str): Separator between values (default is a single space).
+    - end (str): String to print at the end (default is a newline character).
+    - file: File object to write the output to (default is sys.stdout).
+    - flush (bool): If True, the output is forcibly flushed (default is False).
+
+    Returns:
+    None
+    """
+    if VERBOSE:
+        print(*args, sep=sep, end=end, file=file, flush=flush)
 
 def delete_row(app_id, engine):
     """
@@ -235,12 +252,12 @@ def hard_reset(engine):
     Returns:
     None
     """
-    print("Resetting database")
+    dprint("Resetting database")
     with engine.connect() as connection:
         connection.execute(text('DROP SCHEMA public CASCADE;'))
         connection.execute(text('CREATE SCHEMA public;'))
         connection.commit()
-    print("Database reset")
+    dprint("Database reset")
 
 
 def log_action(policy_id, employee_id, data_id, operation, new_data, modified_column, engine):
@@ -313,7 +330,7 @@ def load_applicants(engine, number_of_rows=-1):
             new_data = ','.join([f'{key}={value}' for key, value in list(row._asdict().items())[1:]])
             modified_column = 'all_columns'
             log_action(policy_id, employee_id, data_id, operation, new_data, modified_column, engine)
-    print(f'Added {num_rows} rows.')
+    dprint(f'Added {num_rows} rows.')
 
 
 def print_table(table_name, engine, truncate=True):
@@ -409,7 +426,7 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
         connection.commit()
 
 
-    print(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
+    dprint(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
 
 
 def load_employees(engine):
@@ -512,7 +529,7 @@ def update_data(id, column, value, engine, index=-1):
     log_action(policy_id, employee_id, data_id, Operation.update, value, column, engine)
 
 def engine():
-    print("Connecting engine to database")
+    dprint("Connecting engine to database")
     config = load_config()
     db_url = URL.create(
         "postgresql",
@@ -522,7 +539,7 @@ def engine():
         database=config["database"]
     )
     engine = create_engine(db_url)
-    print("Connection established!")
+    dprint("Connection established!")
     return engine
 
 def init(engine, num_applicants=-1):
@@ -533,25 +550,25 @@ def init(engine, num_applicants=-1):
     create_sequence(engine)
 
     #initialize databases and set primary keys
-    print("Initializing tables...")
+    dprint("Initializing tables...")
     create_table('applicant_details', data_schema, engine)
     create_table('employees', employee_schema, engine, p_key='id')
     create_table('action_history', action_history_schema, engine)
     create_table('privacy_policies', privacy_policy_schema, engine)
-    print("Finished initializing tables!")
+    dprint("Finished initializing tables!")
     
     # create relationships
-    print("Setting up table relationships")
+    dprint("Setting up table relationships")
     create_relationship("privacy_policies", "action_history", "index", "policy_id", engine)
     create_relationship("applicant_details", "action_history", "index", "data_id", engine, cascade_del=True)
     create_relationship("employees","action_history", "id", "employee_id", engine)
-    print("Finished setting relationships!\n")
+    dprint("Finished setting relationships!\n")
     
     #add CSV data to applicant_details table
-    print("Populating tables...")
+    dprint("Populating tables...")
     load_employees(engine)
     load_applicants(engine, num_applicants)
-    print("CSV converted to table!\n")   
+    dprint("CSV converted to table!\n")   
 
 if __name__ == '__main__':
     
