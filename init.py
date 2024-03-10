@@ -57,7 +57,8 @@ data_schema = {
     "residence_state": types.String(length=50),         # the state that the city is in
     "years_in_current_employment": types.Integer,       # number of years of current occupation
     "years_in_current_residence": types.Integer,        # number of years in the current housing
-    "loan_default_risk": types.Integer                  # is the applicant at risk of defaulting on the loan
+    "loan_default_risk": types.Boolean,                  # is the applicant at risk of defaulting on the loan
+    "is_deleted": types.Boolean
 }
 
 employee_schema = {
@@ -299,6 +300,8 @@ def load_applicants(engine, number_of_rows=-1):
         num_rows = min(number_of_rows, len(csv_data))
     
     selected_data = csv_data.head(num_rows)
+    selected_data['loan_default_risk'] = selected_data['loan_default_risk'].astype(bool)
+    selected_data['is_deleted'] = False
 
     with engine.connect() as connection:
         selected_data.to_sql('applicant_details', con=connection, if_exists='append', index=False)
@@ -333,20 +336,22 @@ def print_table(table_name, engine, truncate=True):
         ORDER BY ordinal_position;'''))
         columns_info = {row[0]: row[1] for row in columns_result}
 
-        truncated_columns = {col[:15] if len(col) > 15 and truncate else col: data_type for col, data_type in columns_info.items()}
+        truncated_columns = {f'{col[:4]}_{col.rsplit("_", 1)[1]}'[:15] if len(col) > 15 and truncate else col: data_type for col, data_type in columns_info.items()}
         result = connection.execute(text(f"SELECT * FROM {table_name};"))
 
         table = PrettyTable(truncated_columns.keys())
         row_count = 0
         for row in result:
             formatted_row = []
-            for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
+            for value, data_type in zip(row, truncated_columns.values()):
                 if 'timestamp' in data_type:
                     value = value.strftime('%m-%d-%y %H:%M:%S')
                 if data_type == 'character varying' and value != None:
                     if(len(value) > chunksize):
                         chunks = [value[i: i + chunksize] for i in range(0, len(value), chunksize)]
                         value = '\n'.join(chunks)
+                if value == None:
+                    value = "NULL"
                 formatted_row.append(value)
             table.add_row(formatted_row)
             row_count += 1
@@ -442,6 +447,23 @@ def select_random_employee(engine):
                                          """))
         return result.fetchone()[0]
 
+def soft_delete(index, engine):
+    """
+    Soft delete a record in the 'applicant_details' table. Adds entry to action_history
+
+    Parameters:
+    - index (int): The index of the record to be soft-deleted.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        connection.execute(text(f'UPDATE applicant_details SET is_deleted = true WHERE index = {index};'))
+        connection.commit()
+    policy_id = add_access_policy(Role.loan_manager, Purpose.approval, engine)
+    entity_id = select_random_employee(engine)
+    log_action(policy_id, entity_id, index, Operation.delete, None, None, engine)
 
 def get_random_account(engine):
     '''
@@ -454,15 +476,16 @@ def get_random_account(engine):
     tuple: values from the selected row
     '''
     with engine.connect() as connection:
-        result = connection.execute(text(f"""Select {','.join(list(data_schema.keys()))}
+        result = connection.execute(text(f"""Select index,{','.join(list(data_schema.keys()))}
                                          From applicant_details
+                                         Where is_deleted = false
                                          ORDER BY RANDOM()
                                          LIMIT 1;
                                          """))
         return result.fetchone()
 
 
-def update_data(id, column, value, engine):
+def update_data(id, column, value, engine, index=-1):
     """
     Update a specific column with a new value for a row in the 'applicant_details' table.
 
@@ -471,7 +494,7 @@ def update_data(id, column, value, engine):
     - column (str): The name of the column to be updated.
     - value (any): The new value to be set in the specified column.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
-
+    - index (int): default -1. option to provide index value to prevent looking it up again.
     Returns:
     None
     """
@@ -479,8 +502,10 @@ def update_data(id, column, value, engine):
         query = text(f'UPDATE applicant_details SET {column} = \'{value}\' WHERE applicant_id = {id};')
         connection.execute(query)
         connection.commit()
-        data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
-    
+        if index < 0:
+            data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
+        else:
+            data_id = index
     policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
     entity_id = select_random_employee(engine)
     log_action(policy_id, entity_id, data_id, Operation.update, value, column, engine)
@@ -526,18 +551,18 @@ if __name__ == '__main__':
     #add CSV data to applicant_details table
     print("Populating tables...")
     load_employees(engine)
-    load_applicants(engine, 5)
+    load_applicants(engine, 10)
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
     print_table('applicant_details', engine)
     print_table('action_history', engine)
 
-    update_data(80185, "residence_city", 'Portland', engine)
+    soft_delete(get_random_account(engine)[0],engine)
 
     print_table('applicant_details', engine)
     print_table('action_history', engine, False)
-
+    exit()
     # Try removing a column for the third entry
     remove_column_for_applicant("residence_city", 80185, engine)
     
