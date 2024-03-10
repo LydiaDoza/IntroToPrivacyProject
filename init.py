@@ -117,48 +117,9 @@ def add_access_policy(role, purpose, engine, start_time=None, end_time=None):
         """), policy_data)
         policy_id = result.scalar()
         connection.commit()
-        print(f'Added policy {policy_id} {policy_data}')
+        #print(f'Added policy {policy_id} {policy_data}')
         return policy_id
     
-
-def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
-    """
-    Create a foreign key relationship between two tables.
-
-    Parameters:
-    - table_1 (str): Name of the referenced table.
-    - table_2 (str): Name of the referencing table.
-    - column_1 (str): Column in the referenced table.
-    - column_2 (str): Column in the referencing table.
-    - engine (sqlalchemy.engine.base.Engine): SQLAlchemy database engine.
-    - cascade_del (boolean): whether or not to allow cascade deletion
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        connection.execute(text(f'''ALTER TABLE "{table_2}" 
-                ADD CONSTRAINT fk_{table_1}_{column_1} 
-                FOREIGN KEY ({column_2}) 
-                REFERENCES {table_1}({column_1})
-                {'ON DELETE CASCADE' if cascade_del else ''};'''))
-        connection.commit()
-
-
-def create_sequence(engine):
-    """
-    This function creates a sequence named 'counter' if it doesn't already exist in the database.
-
-    Parameters:
-    - engine: An SQLAlchemy engine object used to connect to the database.
-
-    Returns:
-    None
-    """
-    with engine.connect() as connection:
-        connection.execute(text('CREATE SEQUENCE IF NOT EXISTS counter START WITH 1;'))
-        connection.commit()
-
 
 def create_relationship(table_1, table_2, column_1, column_2, engine, cascade_del=False):
     """
@@ -376,7 +337,7 @@ def print_table(table_name, engine, truncate=True):
         result = connection.execute(text(f"SELECT * FROM {table_name};"))
 
         table = PrettyTable(truncated_columns.keys())
-
+        row_count = 0
         for row in result:
             formatted_row = []
             for col, value, data_type in zip(truncated_columns.keys(), row, truncated_columns.values()):
@@ -388,10 +349,17 @@ def print_table(table_name, engine, truncate=True):
                         value = '\n'.join(chunks)
                 formatted_row.append(value)
             table.add_row(formatted_row)
+            row_count += 1
+            if(row_count == 20):
+                print(table)
+                print('\n')
+                row_count = 0
+                table.clear_rows()      
         # Print the table
-        print(f"Table: {table_name}")
-        print(table)
-        print('\n')
+        if row_count > 0:
+            print(f"Table: {table_name}")
+            print(table)
+            print('\n')
 
 
 def remove_column_for_applicant(column_name, applicant_id, engine):
@@ -477,16 +445,16 @@ def select_random_employee(engine):
 
 def get_random_account(engine):
     '''
-    Selects a random account from the accounts table
+    Returns the values from a random account in the accounts table
 
     Parameters:
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
-
+    tuple: values from the selected row
     '''
     with engine.connect() as connection:
-        result = connection.execute(text("""Select *
+        result = connection.execute(text(f"""Select {','.join(list(data_schema.keys()))}
                                          From applicant_details
                                          ORDER BY RANDOM()
                                          LIMIT 1;
@@ -558,7 +526,7 @@ if __name__ == '__main__':
     #add CSV data to applicant_details table
     print("Populating tables...")
     load_employees(engine)
-    load_applicants(engine, 3)
+    load_applicants(engine, 5)
     print("CSV converted to table!\n")   
 
     # Try printing entire action history table
