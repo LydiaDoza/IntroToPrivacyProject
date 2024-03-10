@@ -2,10 +2,21 @@ import init as db
 import random
 from faker import Faker
 
-def random_action(engine, can_delete=True):
+def random_action(engine, acc_data=None,can_delete=True):
+    """
+    Perform a randomly selected an operation (add, update, view, or delete) on applicant_details
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - acc_data (tuple, optional): Account data to be used in the action. (get this from get_random_account())
+    - can_delete (bool, optional): Flag to allow deletion actions. Defaults to True.
+
+    Returns:
+    None
+    """
     operation = random.choices(list(db.Operation), weights = [0, .1, .5, .4])[0]
     entity = db.select_random_employee(engine)
-    data = db.get_random_account(engine)
+    data = db.get_random_account(engine) if acc_data == None else acc_data
 
     if operation == db.Operation.update:
         column= random.choice(list(db.data_schema.keys())[1:-1])
@@ -57,4 +68,4 @@ def random_action(engine, can_delete=True):
         if can_delete == True:
             db.soft_delete(data[0], engine)
         else:
-            random_action(engine, can_delete=False)
+            random_action(engine, acc_data=acc_data, can_delete=False)
