@@ -72,13 +72,24 @@ def random_action(engine, acc_data=None,can_delete=True):
 
 def init(engine,num_applicants=-1, history_size=-1):
     db.init(engine, num_applicants=num_applicants)
-    if(history_size <= 0):
-        return
-    hs = int(num_applicants * history_size)
-    for _ in range(hs):
-        random_action(engine)
+    if(history_size > 0):
+        hs = int(num_applicants * history_size)
+        for _ in range(hs):
+            random_action(engine)
+
+def column_delete_test(engine):
+    victim = db.get_random_account(engine)
+    init(engine, num_applicants=1)
+    for _ in range(10):
+        random_action(engine, acc_data=victim, can_delete=False)
+    db.print_table('applicant_details', engine)
+    db.print_table('action_history', engine)
+    db.remove_column_for_applicant('residence_city', victim[1],engine)
+    db.print_table('applicant_details', engine)
+    db.print_table('action_history', engine)
+
 
 
 engine = db.engine()
 
-init(engine, 10, .5)
+column_delete_test(engine)
