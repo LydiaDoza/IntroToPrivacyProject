@@ -260,12 +260,31 @@ def hard_reset(engine):
     dprint("Database reset")
 
 
+def soft_reset(engine):
+    """
+    Clears all records in the applicant_details and action_history tables
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        # Clear records from the action_history table
+        connection.execute(text("DELETE FROM action_history;"))
+
+        # Clear records from the applicant_details table
+        connection.execute(text("DELETE FROM applicant_details;"))
+        connection.commit()
+
+
 def log_action(policy_id, employee_id, data_id, operation, new_data, modified_column, engine):
     """
     Log an action into the action history table.
 
     Parameters:
-    - privacy_id (int): The ID of the policy that is being used.
+    - policy_id (int): The ID of the policy that is being used.
     - employee_id (int): The ID of the employee performing the action.
     - data_id (int): The ID of the data being acted upon.
     - operation (Operation): The operation being performed (Enum: Operation).
@@ -291,6 +310,30 @@ def log_action(policy_id, employee_id, data_id, operation, new_data, modified_co
             INSERT INTO "action_history" (policy_id, employee_id, data_id, operation, time, new_data, column_modified)
             VALUES (:policy_id, :employee_id, :data_id, :operation, :time, :new_data, :modified_column)
         """), action_data)
+        connection.commit()
+
+def log_actions(actions, engine):
+    """
+    Log multiple actions into the action history table.
+
+    Parameters:
+    - actions (list of dict): List of dictionaries representing actions.
+      Each dictionary should have keys: 'policy_id', 'employee_id', 'data_id',
+      'operation', 'new_data', 'modified_column'.
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+
+    Returns:
+    None
+    """
+    with engine.connect() as connection:
+        for action_data in actions:
+            action_data["time"] = datetime.now()
+
+            connection.execute(text("""
+                INSERT INTO "action_history" (policy_id, employee_id, data_id, operation, time, new_data, column_modified)
+                VALUES (:policy_id, :employee_id, :data_id, :operation, :time, :new_data, :modified_column)
+            """), action_data)
+
         connection.commit()
 
 def load_applicants(engine, number_of_rows=-1):
