@@ -2,10 +2,14 @@ import init as db
 import random
 from faker import Faker
 import time
+import matplotlib.pyplot as plt
+import numpy as np
+from datetime import datetime
+from sqlalchemy import text
 
 def random_action(engine, acc_data=None,can_delete=True):
     """
-    Perform a randomly selected an operation (add, update, view, or delete) on applicant_details
+    Perform a randomly selected operation (add, update, view, or delete) on applicant_details
 
     Parameters:
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
@@ -21,55 +25,122 @@ def random_action(engine, acc_data=None,can_delete=True):
 
     if operation == db.Operation.update:
         column= random.choice(list(db.data_schema.keys())[1:-1])
-        if column == 'annual_income':
-            new_value = random.randint(10000, 10000000)
-        elif column == 'applicant_age':
-            new_value = random.randint(21, 79)
-        elif column == 'work_experience':
-            new_value = random.randint(0, 20)
-        elif column == 'marital_status':
-            new_value= 'married' if data[5] == 'single' else 'single'
-        elif column == 'house_ownership':
-            new_value= 'owned' if data[6] == 'rented' else 'rented' 
-        elif column == 'vehicle_ownership':
-            new_value= 'yes' if data[7] == 'no' else 'no'
-        elif column == 'occupation':
-            fake = Faker()
-            new_value = fake.job()
-            new_value = new_value.replace("'", "")
-            if len(new_value) > 40:
-                x = new_value.split(',')
-                if len(x) > 1:
-                    new_value = x[0]
-                new_value = new_value[:40]
-        elif column == 'residence_city':
-            fake = Faker()
-            new_value = fake.city()
-        elif column == 'residence_state':
-            fake = Faker()
-            new_value = fake.state()
-        elif column == 'years_in_current_employment':
-            new_value = random.randint(0, 15)
-        elif column == 'years_in_current_residence':
-            new_value = random.randint(0, 15)
-        elif column == 'loan_default_risk':
-            new_value = True if data[13] == False else False
-        else:
-            print(f"Some how you got an invalid column name to generate {column}")
-            return
+        new_value = gen_new_value(column, data)
         db.update_data(data[1], column, new_value, engine, index=data[0])
-
     elif operation == db.Operation.view:
         purpose = random.choice([db.Purpose.audit, db.Purpose.review])
         role = random.choice(list(db.Role))
         policy = db.add_access_policy(role, purpose, engine)
         db.log_view(policy, entity, data[0], engine)
-
     elif operation == db.Operation.delete:
         if can_delete == True:
             db.soft_delete(data[0], engine)
         else:
             random_action(engine, acc_data=acc_data, can_delete=False)
+
+
+def gen_random_action(engine, acc_data=None,can_delete=True):
+    """
+    Generate the values for a randomly selected an operation (add, update, view, or delete) on applicant_details
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - acc_data (tuple, optional): Account data to be used in the action. (get this from get_random_account())
+    - can_delete (bool, optional): Flag to allow deletion actions. Defaults to True.
+
+    Returns:
+    dict: Dictionary containing values for the performed action.
+    """
+    action= {"policy_id": None, 
+            "employee_id": None, 
+            "data_id": None,
+            "operation": None, 
+            "time": datetime.now(),
+            "new_data": None, 
+            "modified_column": None}
+    operation = random.choices(list(db.Operation), weights = [0, .1, .5, .4])[0]
+    employee = db.select_random_employee(engine)
+    data = db.get_random_account(engine) if acc_data == None else acc_data
+
+    action['operation'] = operation.value
+    action['employee_id'] = employee
+    action['data_id'] = data[0]
+
+    if operation == db.Operation.update:
+        column= random.choice(list(db.data_schema.keys())[1:-1])
+        action['modified_column'] = column
+        action['new_data'] = gen_new_value(column, data)
+        p_id = db.add_access_policy(db.Role.loan_officer, db.Purpose.audit, engine)
+    elif operation == db.Operation.view:
+        purpose = random.choice([db.Purpose.audit, db.Purpose.review])
+        role = random.choice(list(db.Role))
+        p_id = db.add_access_policy(role, purpose, engine)
+    elif operation == db.Operation.delete:
+        if can_delete:
+            p_id = db.add_access_policy(db.Role.loan_manager, db.Purpose.approval, engine)
+        else:
+            return gen_random_action(engine, acc_data=acc_data, can_delete=can_delete)
+    action['policy_id'] = p_id
+    return action
+
+def gen_random_actions(engine, num_actions, acc_data=None, can_delete=True):
+    """
+    Generate a list of randomly selected actions (add, update, view, or delete) on applicant_details.
+
+    Parameters:
+    - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - num_actions (int): The number of random actions to generate.
+    - acc_data (tuple, optional): Account data to be used in the actions (get this from get_random_account()).
+    - can_delete (bool, optional): Flag to allow soft deletion actions. Defaults to True.
+
+    Returns:
+    list: List of dictionaries containing information about the generated actions.
+    """
+    actions = []
+    for i in range(num_actions):
+        actions.append(gen_random_action(engine, acc_data= acc_data, can_delete=can_delete))
+    return actions
+
+
+def gen_new_value(column, data):
+    if column == 'annual_income':
+        return random.randint(10000, 10000000)
+    elif column == 'applicant_age':
+        return random.randint(21, 79)
+    elif column == 'work_experience':
+        return random.randint(0, 20)
+    elif column == 'marital_status':
+        return 'married' if data[5] == 'single' else 'single'
+    elif column == 'house_ownership':
+        return 'owned' if data[6] == 'rented' else 'rented'
+    elif column == 'vehicle_ownership':
+        return 'yes' if data[7] == 'no' else 'no'
+    elif column == 'occupation':
+        fake = Faker()
+        new_value = fake.job()
+        new_value = new_value.replace("'", "")
+        if len(new_value) > 40:
+            x = new_value.split(',')
+            if len(x) > 1:
+                new_value = x[0]
+            new_value = new_value[:40]
+        return new_value
+    elif column == 'residence_city':
+        fake = Faker()
+        return fake.city()
+    elif column == 'residence_state':
+        fake = Faker()
+        return fake.state()
+    elif column == 'years_in_current_employment':
+        return random.randint(0, 15)
+    elif column == 'years_in_current_residence':
+        return random.randint(0, 15)
+    elif column == 'loan_default_risk':
+        return True if data[13] == False else False
+    else:
+        print(f"Somehow you got an invalid column name to generate {column}")
+        return None
+
 
 def init(engine,num_applicants=-1, history_size=-1, acc=None, delete=True):
     """
@@ -135,6 +206,12 @@ def row_delete_test(engine):
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
 
+def get_ids(engine):
+    with engine.connect() as connection:
+        result = connection.execute(text('SELECT index FROM applicant_details;'))
+        indexs = [row[0] for row in result]
+    return indexs
+
 def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1):
     """
     Measures the average execution time of deletion operations in the database.
@@ -152,20 +229,29 @@ def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1
     float: Average time taken for the deletion operation across all iterations.
     """
     time_sum = 0
+    n = int(num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist)
+    d = True if del_type == 'row' else False
     print(f'{del_type} test [iter={num_iter}, num_app={num_app}, num_hist={num_hist}, num_del={num_del}]')
+    #hard reset before test
+    print('Initial setup')
+    init(engine, num_app)
+    actions = gen_random_actions(engine, n, can_delete=d)
+
     for i in range(num_iter):
         print(f'\t{i + 1}: ', end='')
         # test set up
         print('Initializing db...', end='')
         if seed > 0:
             random.seed(seed)
-        init(engine, num_app)
+        db.soft_reset(engine)
+        db.load_applicants(engine, num_app)
         victim = db.get_random_account(engine)
-        d = True if del_type == 'row' else False
-        n = (num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist)
         print('Populating action history...', end='')
-        for _ in range(n):
-            random_action(engine, can_delete=d)
+        # have to get new data_ids since indexs arn't the same as origionals
+        fresh_ids = get_ids(engine)
+        for a in actions:
+            a['data_id'] = random.choice(fresh_ids) 
+        db.log_actions(actions, engine)
         if del_type == 'column':
             for _ in range(2):
                 db.update_data(victim[1], 'residence_city', Faker().city(), engine)
@@ -184,9 +270,31 @@ def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1
     avg_time = time_sum / num_iter
     return avg_time
 
-engine = db.engine()
+def evaluate(total_app, hist_size, engine, del_type='column', num_steps = 4, num_iter=5,  num_del=1, seed=-1):
+    step_size = total_app // num_steps
+    test_sizes = range(step_size, total_app + 1, step_size)
+    avg_times = []
 
-avg = timed_test(100, 1, 'column', 3, engine, seed=12345) * 1000
-print("average", round(avg, 3), 'ms')
-#column_delete_test(engine)
-#row_delete_test(engine)
+    for size in test_sizes:
+        avg_time = timed_test(size, hist_size, del_type, num_iter, engine, num_del=num_del, seed=seed)
+        avg_time *= 1000
+        print(f'\tAverage: {round(avg_time, 3)}ms')
+        avg_times.append(avg_time)
+
+    # Plotting the results
+    plt.plot(test_sizes, avg_times, marker='o')
+    plt.title('Evaluation of Test Performance')
+    plt.xlabel('Number of Applicants')
+    plt.ylabel('Average Time (ms)')
+    plt.grid(True)
+    plt.show()
+
+
+if __name__ == '__main__':
+    engine = db.engine()
+    db.hard_reset(engine)
+
+    column_delete_test(engine)
+    row_delete_test(engine)
+
+    evaluate(50000, 1.5, engine,num_iter=10,num_steps=8, seed=12212)
