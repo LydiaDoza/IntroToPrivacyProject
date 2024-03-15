@@ -229,7 +229,7 @@ def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1
     float: Average time taken for the deletion operation across all iterations.
     """
     time_sum = 0
-    n = int(num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist)
+    n = int(num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist) - 1
     d = True if del_type == 'row' else False
     print(f'{del_type} test [iter={num_iter}, num_app={num_app}, num_hist={num_hist}, num_del={num_del}]')
     #hard reset before test
@@ -283,8 +283,25 @@ def evaluate(total_app, hist_size, engine, del_type='column', num_steps = 4, num
 
     # Plotting the results
     plt.plot(test_sizes, avg_times, marker='o')
-    plt.title('Evaluation of Test Performance')
+    plt.title(f'Performance relative to data size ({int(100 + hist_size * 100)}% History Size)')
     plt.xlabel('Number of Applicants')
+    plt.ylabel('Average Time (ms)')
+    plt.grid(True)
+    plt.show()
+
+def evaluate_hist(total_app, hist_inc, engine, del_type='column', num_steps = 4, num_iter=5,  num_del=1, seed=-1):
+    avg_times = []
+    step = int(total_app * hist_inc)
+    step_sizes = range(total_app + step, total_app + (step * num_steps) + 1, step)
+    for n in range(1,num_steps + 1):
+        avg_time = timed_test(total_app, hist_inc * n, del_type, num_iter, engine, num_del=num_del, seed=seed)
+        avg_time *= 1000
+        print(f'\tAverage: {round(avg_time, 3)}ms')
+        avg_times.append(avg_time)
+    # Plotting the results
+    plt.plot(step_sizes, avg_times, marker='o')
+    plt.title(f'Performance Relative to Action History size({total_app} applicants)')
+    plt.xlabel('History Size:')
     plt.ylabel('Average Time (ms)')
     plt.grid(True)
     plt.show()
@@ -297,4 +314,5 @@ if __name__ == '__main__':
     column_delete_test(engine)
     row_delete_test(engine)
 
-    evaluate(50000, 1.5, engine,num_iter=10,num_steps=8, seed=12212)
+    evaluate(10000, .5, engine, num_iter=8, num_steps=8, seed=666)
+    evaluate_hist(1500, 1, engine, num_steps=8, num_iter=15, seed=666)
