@@ -1,5 +1,6 @@
 import init as db
 import random
+import sys
 from faker import Faker
 import time
 import matplotlib.pyplot as plt
@@ -7,7 +8,7 @@ import numpy as np
 from datetime import datetime
 from sqlalchemy import text
 
-def random_action(engine, acc_data=None,can_delete=True):
+def random_action(engine, blacklist=None, acc_data=None, can_delete=True):
     """
     Perform a randomly selected operation (add, update, view, or delete) on applicant_details
 
@@ -21,7 +22,7 @@ def random_action(engine, acc_data=None,can_delete=True):
     """
     operation = random.choices(list(db.Operation), weights = [0, .1, .5, .4])[0]
     entity = db.select_random_employee(engine)
-    data = db.get_random_account(engine) if acc_data == None else acc_data
+    data = db.get_random_account(engine, blacklist=blacklist) if acc_data is None else acc_data
 
     if operation == db.Operation.update:
         column= random.choice(list(db.data_schema.keys())[1:-1])
@@ -36,7 +37,7 @@ def random_action(engine, acc_data=None,can_delete=True):
         if can_delete == True:
             db.soft_delete(data[0], engine)
         else:
-            random_action(engine, acc_data=acc_data, can_delete=False)
+            random_action(engine, blacklist=blacklist, acc_data=acc_data, can_delete=False)
 
 
 def gen_random_action(engine, acc_data=None,can_delete=True):
@@ -101,6 +102,9 @@ def gen_random_actions(engine, num_actions, acc_data=None, can_delete=True):
         actions.append(gen_random_action(engine, acc_data= acc_data, can_delete=can_delete))
     return actions
 
+def random_actions(engine, num_actions, blacklist=None, can_delete=True):
+    for _ in range(num_actions):
+        random_action(engine, blacklist=blacklist, can_delete=can_delete)
 
 def gen_new_value(column, data):
     if column == 'annual_income':
@@ -181,7 +185,7 @@ def column_delete_test(engine):
         db.update_data(victim[1], 'residence_city', Faker().city(), engine)
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
-    db.remove_column_for_applicant('residence_city', victim[1],engine)
+    db.remove_column_for_applicant('residence_city', victim[0],engine, vacuum=True)
     db.print_table('applicant_details', engine)
     db.print_table('action_history', engine)
 
@@ -212,15 +216,15 @@ def get_ids(engine):
         indexs = [row[0] for row in result]
     return indexs
 
-def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1):
+def timed_test(num_app, num_hist, num_iter, vacuum, engine, num_del=1, seed=-1):
     """
-    Measures the average execution time of deletion operations in the database.
+    Measures the average execution time of a single column deletion operation in the database.
 
     Parameters:
     - num_app (int): Number of applicants to use in test.
     - num_hist (float): Number of history records relative to number of applicants 
-    - del_type (str): Type of deletion operation ('row' for row deletion, 'column' for column deletion).
     - num_iter (int): Number of iterations for the test.
+    - vacuum (bool): Execute VACUUM FULL after deletion.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
     - num_del (int): Number of deletion operations per iteration (default is 1).
     - seed (int): Seed for random number generation (default is -1, ignored if < 1)
@@ -228,55 +232,74 @@ def timed_test(num_app, num_hist, del_type, num_iter, engine, num_del=1, seed=-1
     Returns:
     float: Average time taken for the deletion operation across all iterations.
     """
+    # test set up
+    if seed > 0:
+        random.seed(seed)
     time_sum = 0
-    n = int(num_app * num_hist) - 2 if del_type == 'column' else (num_app * num_hist) - 1
-    d = True if del_type == 'row' else False
-    print(f'{del_type} test [iter={num_iter}, num_app={num_app}, num_hist={num_hist}, num_del={num_del}]')
-    #hard reset before test
-    print('Initial setup')
+    n = int(num_app * num_hist) - (2 * num_iter)
+    print(f'Column test [iter={num_iter}, num_app={num_app}, num_hist={num_hist}, num_del={num_del}]')
+
+    print('Initializing db...', end='')
     init(engine, num_app)
-    actions = gen_random_actions(engine, n, can_delete=d)
+    
+    print('Populating action history...')
+    selected_ids = random.choices(get_ids(engine), k=num_iter)
+    # add update calls for the test to have to overwrite
+    for i in selected_ids:
+        for _ in range(2):
+            db.update_data(None, 'residence_city', Faker().city(),engine, index=i)
+    random_actions(engine, n, selected_ids)
 
     for i in range(num_iter):
         print(f'\t{i + 1}: ', end='')
-        # test set up
-        print('Initializing db...', end='')
-        if seed > 0:
-            random.seed(seed)
-        db.soft_reset(engine)
-        db.load_applicants(engine, num_app)
-        victim = db.get_random_account(engine)
-        print('Populating action history...', end='')
-        # have to get new data_ids since indexs arn't the same as origionals
-        fresh_ids = get_ids(engine)
-        for a in actions:
-            a['data_id'] = random.choice(fresh_ids) 
-        db.log_actions(actions, engine)
-        if del_type == 'column':
-            for _ in range(2):
-                db.update_data(victim[1], 'residence_city', Faker().city(), engine)
-        elif del_type == 'row':
-            db.soft_delete(victim[0], engine)
-        # run iteration
+        
+        victim = selected_ids[i]
+        
         print('Running test...', end='')
         s_time = time.time()
-        if del_type == 'column':
-            db.remove_column_for_applicant('residence_city', victim[1], engine)
-        elif del_type == 'row':
-            db.delete_row(victim[1], engine)
+        db.remove_column_for_applicant('residence_city', victim, engine, vacuum=vacuum)
         f_time = time.time()
         time_sum += f_time - s_time
         print(f'{round((f_time - s_time) * 1000, 5)} ms')
     avg_time = time_sum / num_iter
     return avg_time
 
-def evaluate(total_app, hist_size, engine, del_type='column', num_steps = 4, num_iter=5,  num_del=1, seed=-1):
+def batch_timed_test(num_app, num_hist, num_iter, is_sequential, num_del, seed=-1):
+    # test set up
+    if seed > 0:
+        random.seed(seed)
+    time_sum = 0
+    n = int(num_app * num_hist) - (2 * num_iter)
+    print(f"Batch {' (Sequential)' if is_sequential else ''} test [iters={num_iter}, num_app={num_app}, num_hist={num_hist * num_app}, num_del={num_del}]")
+
+    print('Initializing db...', end='')
+    init(engine, num_app)
+    
+    print('Populating action history...')
+    selected_ids = random.choices(get_ids(engine), k=num_del)
+    for i in selected_ids:
+        for _ in range(2):
+            db.update_data(None, 'residence_city', Faker().city(),engine, index=i)
+    random_actions(engine, n, selected_ids)
+
+    for i in range(num_iter):
+        print(f'\t{i + 1}: ', end='')
+        print('Running test...', end='')
+        s_time = time.time()
+        db.column_batch_delete('residence_city', selected_ids, is_sequential, engine)    
+        f_time = time.time()
+        time_sum += f_time - s_time
+        print(f'{round((f_time - s_time) * 1000, 5)} ms')
+    avg_time = time_sum / num_iter
+    return avg_time
+
+def evaluate(total_app, hist_size, engine, num_steps = 4, num_iter=5, seed=-1):
     step_size = total_app // num_steps
     test_sizes = range(step_size, total_app + 1, step_size)
     avg_times = []
 
     for size in test_sizes:
-        avg_time = timed_test(size, hist_size, del_type, num_iter, engine, num_del=num_del, seed=seed)
+        avg_time = timed_test(size, hist_size, num_iter, True, engine, seed=seed)
         avg_time *= 1000
         print(f'\tAverage: {round(avg_time, 3)}ms')
         avg_times.append(avg_time)
@@ -289,16 +312,16 @@ def evaluate(total_app, hist_size, engine, del_type='column', num_steps = 4, num
     plt.grid(True)
     plt.show()
 
-def evaluate_hist(total_app, hist_inc, engine, del_type='column', num_steps = 4, num_iter=5,  num_del=1, seed=-1):
+def evaluate_hist(total_app, hist_inc, engine, num_steps=4, num_iter=5, seed=-1):
     avg_times = []
     step = int(total_app * hist_inc)
     step_sizes = range(total_app + step, total_app + (step * num_steps) + 1, step)
     for n in range(1,num_steps + 1):
-        avg_time = timed_test(total_app, hist_inc * n, del_type, num_iter, engine, num_del=num_del, seed=seed)
+        avg_time = timed_test(total_app, hist_inc * n, num_iter, True, engine, num_del=num_del, seed=seed)
         avg_time *= 1000
         print(f'\tAverage: {round(avg_time, 3)}ms')
         avg_times.append(avg_time)
-    # Plotting the results
+    
     plt.plot(step_sizes, avg_times, marker='o')
     plt.title(f'Performance Relative to Action History size({total_app} applicants)')
     plt.xlabel('History Size:')
@@ -306,13 +329,37 @@ def evaluate_hist(total_app, hist_inc, engine, del_type='column', num_steps = 4,
     plt.grid(True)
     plt.show()
 
+def batch_evaluate(total_app, hist_size, num_deletes, is_sequential, engine, num_steps = 4, num_iter=5):
+    step_size = num_deletes // num_steps
+    test_sizes = range(step_size, num_deletes + 1, step_size)
+    avg_times = []
+    for size in test_sizes:
+        avg_time = batch_timed_test(total_app, hist_size, num_iter, is_sequential, size)
+        avg_time *= 1000
+        print(f'\tAverage: {round(avg_time, 3)}ms')
+        avg_times.append(avg_time)
+    
+       # Plotting the results
+    plt.plot(test_sizes, avg_times, marker='o')
+    s = ' (sequential)' if is_sequential else ''
+    plt.title(f'Batch{s} Deletion Performance')
+    plt.xlabel('Number of Deletions')
+    plt.ylabel('Average Time (ms)')
+    plt.grid(True)
+    plt.show()
 
 if __name__ == '__main__':
     engine = db.engine()
     db.hard_reset(engine)
-
-    column_delete_test(engine)
-    row_delete_test(engine)
-
-    evaluate(10000, .5, engine, num_iter=8, num_steps=8, seed=666)
-    evaluate_hist(1500, 1, engine, num_steps=8, num_iter=15, seed=666)
+    
+    #column_delete_test(engine)
+    #row_delete_test(engine)
+    seed = 344323422
+    # data size performance test
+    evaluate(100000, .5, engine, num_iter=10, num_steps=4, seed=seed)
+    # history performance test
+    evaluate_hist(2000, 1, engine, num_steps=8, num_iter=10, seed=seed)
+    # batch test
+    batch_evaluate(100000, 1, 75000, False, engine, num_steps=5, num_iter=10)
+    # sequential batch test
+    batch_evaluate(1000000, 1, 7500, True, engine, num_steps=5, num_iter=10)

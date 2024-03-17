@@ -428,33 +428,27 @@ def print_table(table_name, engine, truncate=True):
             print('\n')
 
 
-def remove_column_for_applicant(column_name, applicant_id, engine):
+def remove_column_for_applicant(column_name, index, engine, vacuum=False):
     """
     Remove the specified column for a specific applicant in the 'applicant_details' table
     and update 'action_history' table accordingly.
 
     Parameters:
     - column_name (str): The name of the column to be removed.
-    - applicant_id (int): The ID of the applicant whose column is to be removed.
+    - index (int): The index of the applicant whose column is to be removed.
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
 
     Returns:
     None
     """
     with engine.connect() as connection:
-        # Update applicant_details table to get the old value
-        result = connection.execute(text(f'SELECT "{column_name}" FROM applicant_details WHERE applicant_id = {applicant_id}'))
-        old_data = result.scalar()
-
-        # Update applicant_details table to set the specified column to None
-        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE applicant_id = {applicant_id}')
+        
+        # Remove data from applicant_details table
+        query = text(f'UPDATE applicant_details SET "{column_name}" = NULL WHERE index = {index}')
         connection.execute(query)
         connection.commit()
-
-        # Retrieve the index based on the applicant_id
-        result = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {applicant_id}'))
-        index = result.scalar()
-
+        
+        # Sanatize action_history table
         query = text(f'''UPDATE action_history
             SET new_data = 
                 CASE
@@ -466,10 +460,53 @@ def remove_column_for_applicant(column_name, applicant_id, engine):
                 END
             WHERE data_id = {index};''')
         connection.execute(query)
-        connection.commit()
+        connection.execute(text("COMMIT;")) # have to do it this way for vacuum
+        if vacuum:
+            connection.execute(text('VACUUM FULL applicant_details;'))
+            connection.execute(text('VACUUM FULL action_history;'))
 
 
-    dprint(f"Column '{column_name}' removed for applicant_id {applicant_id} in 'applicant_details' table and action history updated.\n")
+    dprint(f"Column '{column_name}' removed for applicant {index} in 'applicant_details' table and action history updated.\n")
+
+
+def column_batch_delete(column_name, indexs, is_sequential, engine):
+    with engine.connect() as connection:
+        ad_query = ''
+        ah_query = ''
+        if not is_sequential:
+            for x in indexs:
+                ad_query += f'UPDATE applicant_details SET "{column_name}" = NULL WHERE index = {x};'
+                ah_query += f'''UPDATE action_history SET new_data = 
+                CASE
+                    WHEN operation = 'add' 
+                    THEN REGEXP_REPLACE(new_data, '({column_name}=)[^,]+(,|$)', '\\1NULL\\2')
+                    WHEN operation = 'update' AND column_modified = '{column_name}'
+                    THEN NULL
+                    ELSE new_data
+                END
+                WHERE data_id = {x};'''
+            connection.execute(text(ad_query))
+            connection.execute(text(ah_query))
+            connection.execute(text("COMMIT;")) # have to do it this way for vacuum
+            connection.execute(text('VACUUM FULL applicant_details;'))
+            connection.execute(text('VACUUM FULL action_history;'))
+        else:
+            for x in indexs:
+                ad_query = f'UPDATE applicant_details SET "{column_name}" = NULL WHERE index = {x};'
+                ah_query = f'''UPDATE action_history SET new_data = 
+                CASE
+                    WHEN operation = 'add' 
+                    THEN REGEXP_REPLACE(new_data, '({column_name}=)[^,]+(,|$)', '\\1NULL\\2')
+                    WHEN operation = 'update' AND column_modified = '{column_name}'
+                    THEN NULL
+                    ELSE new_data
+                END
+                WHERE data_id = {x};'''
+                connection.execute(text(ad_query))
+                connection.execute(text(ah_query))
+                connection.execute(text("COMMIT;")) # have to do it this way for vacuum
+                connection.execute(text('VACUUM FULL applicant_details;'))
+                connection.execute(text('VACUUM FULL action_history;'))
 
 
 def load_employees(engine):
@@ -526,20 +563,23 @@ def soft_delete(index, engine):
     employee_id = select_random_employee(engine)
     log_action(policy_id, employee_id, index, Operation.delete, None, None, engine)
 
-def get_random_account(engine):
+def get_random_account(engine, blacklist=None):
     '''
     Returns the values from a random account in the accounts table
 
     Parameters:
     - engine (sqlalchemy.engine.base.Engine): The SQLAlchemy engine for database connection.
+    - blacklist (list, optional): A list of account index's to exclude from selection.
 
     Returns:
     tuple: values from the selected row
     '''
+    blacklist_condition = f"AND index NOT IN ({','.join(map(str, blacklist))})" if blacklist else ""
     with engine.connect() as connection:
         result = connection.execute(text(f"""Select index,{','.join(list(data_schema.keys()))}
                                          From applicant_details
                                          Where is_deleted = false
+                                         {blacklist_condition}
                                          ORDER BY RANDOM()
                                          LIMIT 1;
                                          """))
@@ -560,11 +600,12 @@ def update_data(id, column, value, engine, index=-1):
     None
     """
     with engine.connect() as connection:
-        query = text(f'UPDATE applicant_details SET {column} = \'{value}\' WHERE applicant_id = {id};')
+        a = f'applicant_id = {id}' if index < 0 else f'index = {index}'
+        query = text(f'UPDATE applicant_details SET {column} = \'{value}\' WHERE {a};')
         connection.execute(query)
         connection.commit()
         if index < 0:
-            data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE applicant_id = {id}')).scalar()
+            data_id = connection.execute(text(f'SELECT index FROM applicant_details WHERE {a}')).scalar()
         else:
             data_id = index
     policy_id = add_access_policy(Role.loan_officer, Purpose.audit, engine)
