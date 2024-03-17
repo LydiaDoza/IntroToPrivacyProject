@@ -317,7 +317,7 @@ def evaluate_hist(total_app, hist_inc, engine, num_steps=4, num_iter=5, seed=-1)
     step = int(total_app * hist_inc)
     step_sizes = range(total_app + step, total_app + (step * num_steps) + 1, step)
     for n in range(1,num_steps + 1):
-        avg_time = timed_test(total_app, hist_inc * n, num_iter, True, engine, num_del=num_del, seed=seed)
+        avg_time = timed_test(total_app, hist_inc * n, num_iter, True, engine, seed=seed)
         avg_time *= 1000
         print(f'\tAverage: {round(avg_time, 3)}ms')
         avg_times.append(avg_time)
