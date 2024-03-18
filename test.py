@@ -264,24 +264,9 @@ def timed_test(num_app, num_hist, num_iter, vacuum, engine, num_del=1, seed=-1):
     avg_time = time_sum / num_iter
     return avg_time
 
-def batch_timed_test(num_app, num_hist, num_iter, is_sequential, num_del, seed=-1):
-    # test set up
-    if seed > 0:
-        random.seed(seed)
+def batch_timed_test(num_iter, is_sequential, selected_ids):
     time_sum = 0
-    n = int(num_app * num_hist) - (2 * num_iter)
-    print(f"Batch {' (Sequential)' if is_sequential else ''} test [iters={num_iter}, num_app={num_app}, num_hist={num_hist * num_app}, num_del={num_del}]")
-
-    print('Initializing db...', end='')
-    init(engine, num_app)
     
-    print('Populating action history...')
-    selected_ids = random.choices(get_ids(engine), k=num_del)
-    for i in selected_ids:
-        for _ in range(2):
-            db.update_data(None, 'residence_city', Faker().city(),engine, index=i)
-    random_actions(engine, n, selected_ids)
-
     for i in range(num_iter):
         print(f'\t{i + 1}: ', end='')
         print('Running test...', end='')
@@ -289,7 +274,7 @@ def batch_timed_test(num_app, num_hist, num_iter, is_sequential, num_del, seed=-
         db.column_batch_delete('residence_city', selected_ids, is_sequential, engine)    
         f_time = time.time()
         time_sum += f_time - s_time
-        print(f'{round((f_time - s_time) * 1000, 5)} ms')
+        print(f'{round((f_time - s_time), 5)} s')
     avg_time = time_sum / num_iter
     return avg_time
 
@@ -329,22 +314,46 @@ def evaluate_hist(total_app, hist_inc, engine, num_steps=4, num_iter=5, seed=-1)
     plt.grid(True)
     plt.show()
 
-def batch_evaluate(total_app, hist_size, num_deletes, is_sequential, engine, num_steps = 4, num_iter=5):
+def batch_evaluate(total_app, hist_size, num_deletes, is_sequential, engine, num_steps = 4, num_iter=5, init_db=False):
     step_size = num_deletes // num_steps
     test_sizes = range(step_size, num_deletes + 1, step_size)
     avg_times = []
+    
+    if init_db:
+        # test set up
+        if seed > 0:
+            random.seed(seed)
+        
+        n = int(total_app * hist_size) - (2 * num_iter)
+        print(f"Batch {' (Sequential)' if is_sequential else ''} test num_app={total_app}, num_hist={hist_size * total_app}, num_del={num_deletes} num_iter={num_iter}  num_steps={num_steps}")
+
+        print('Initializing db...', end='')
+        init(engine, total_app)
+        
+        print('Populating action history...')
+        selected_ids = random.choices(get_ids(engine), k=num_deletes)
+        for i in selected_ids:
+            for _ in range(2):
+                db.update_data(None, 'residence_city', Faker().city(),engine, index=i)
+        random_actions(engine, n, selected_ids)
+    else:
+        selected_ids = random.choices(get_ids(engine), k=num_deletes)
+            
+    i = 1
     for size in test_sizes:
-        avg_time = batch_timed_test(total_app, hist_size, num_iter, is_sequential, size)
-        avg_time *= 1000
-        print(f'\tAverage: {round(avg_time, 3)}ms')
+        print(f'[iter={str(i) + "/"+ str(num_steps)} num_delete={size}]')
+        avg_time = batch_timed_test(num_iter, is_sequential, selected_ids[:size])
+        #avg_time *= 1000
+        print(f'\tAverage: {round(avg_time, 3)}s')
         avg_times.append(avg_time)
+        i += 1
     
        # Plotting the results
     plt.plot(test_sizes, avg_times, marker='o')
     s = ' (sequential)' if is_sequential else ''
     plt.title(f'Batch{s} Deletion Performance')
     plt.xlabel('Number of Deletions')
-    plt.ylabel('Average Time (ms)')
+    plt.ylabel('Average Time (s)')
     plt.grid(True)
     plt.show()
 
@@ -352,14 +361,14 @@ if __name__ == '__main__':
     engine = db.engine()
     db.hard_reset(engine)
     
-    #column_delete_test(engine)
-    #row_delete_test(engine)
+    column_delete_test(engine)
+    row_delete_test(engine)
     seed = 344323422
     # data size performance test
     evaluate(100000, .5, engine, num_iter=10, num_steps=4, seed=seed)
     # history performance test
     evaluate_hist(2000, 1, engine, num_steps=8, num_iter=10, seed=seed)
     # batch test
-    batch_evaluate(100000, 1, 75000, False, engine, num_steps=5, num_iter=10)
+    batch_evaluate(100000, 1, 75000, False, engine, num_steps=5, num_iter=10, init_db=True)
     # sequential batch test
-    batch_evaluate(1000000, 1, 7500, True, engine, num_steps=5, num_iter=10)
+    batch_evaluate(100000, 1, 75000, True, engine, num_steps=5, num_iter=10, init_db=False)
